@@ -28,9 +28,9 @@ Set up the project skeleton: a Cargo workspace with a `core` crate that builds a
 
 ### Task 3: Create Xcode SwiftUI app
 
-- [ ] Create `apps/TorrentApp.xcodeproj` via Xcode (macOS App, SwiftUI lifecycle, minimum macOS 14.0).
-- [ ] Keep `TorrentAppApp.swift` and `ContentView.swift`; strip the stock placeholder content.
-- [ ] Set bundle identifier and signing to ad-hoc / development; no team needed.
+- [x] Create `apps/TorrentApp.xcodeproj` via Xcode (macOS App, SwiftUI lifecycle, minimum macOS 14.0).
+- [x] Keep `TorrentAppApp.swift` and `ContentView.swift`; strip the stock placeholder content.
+- [x] Set bundle identifier and signing to ad-hoc / development; no team needed.
 
 ### Task 4: Integrate Rust build into Xcode
 
