@@ -1,0 +1,17 @@
+# Rust build output
+target/
+build/
+
+# macOS
+.DS_Store
+
+# Xcode generated artifacts
+apps/TorrentApp/Generated/
+xcuserdata/
+**/*.xcuserstate
+*.xcuserstate
+
+# Derived data and local Xcode settings
+DerivedData/
+*.xccheckout
+*.moved-aside

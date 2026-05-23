@@ -41,6 +41,6 @@ Set up the project skeleton: a Cargo workspace with a `core` crate that builds a
 
 ### Task 5: Lock down the toolchain and ignore generated artifacts
 
-- [ ] Add `rust-toolchain.toml` pinning a stable Rust version.
-- [ ] Add `.gitignore` covering `target/`, `build/`, `.DS_Store`, `apps/TorrentApp/Generated/`, `xcuserdata/`, `*.xcuserstate`.
-- [ ] Run the full validation command set and confirm a fresh checkout builds end-to-end.
+- [x] Add `rust-toolchain.toml` pinning a stable Rust version.
+- [x] Add `.gitignore` covering `target/`, `build/`, `.DS_Store`, `apps/TorrentApp/Generated/`, `xcuserdata/`, `*.xcuserstate`.
+- [x] Run the full validation command set and confirm a fresh checkout builds end-to-end.
