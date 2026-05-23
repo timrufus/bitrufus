@@ -32,6 +32,12 @@ struct ContentView: View {
         }
         .padding()
         .frame(minWidth: 500, minHeight: 300)
+        .safeAreaInset(edge: .bottom) {
+            Text("Rust: \(ping())")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .padding(4)
+        }
     }
 }
 

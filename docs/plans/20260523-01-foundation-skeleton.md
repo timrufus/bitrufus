@@ -34,10 +34,10 @@ Set up the project skeleton: a Cargo workspace with a `core` crate that builds a
 
 ### Task 4: Integrate Rust build into Xcode
 
-- [ ] Write `scripts/build-rust.sh` that builds the core crate for the active Xcode arch and regenerates Swift bindings into `apps/TorrentApp/Generated/`.
-- [ ] Add a Run Script Build Phase invoking `scripts/build-rust.sh` before "Compile Sources".
-- [ ] Link `libcore.a` under "Link Binary With Libraries"; add `apps/TorrentApp/Generated/` to the app target's compile sources.
-- [ ] Update `ContentView.swift` to display `Text(ping())`.
+- [x] Write `scripts/build-rust.sh` that builds the core crate for the active Xcode arch and regenerates Swift bindings into `apps/TorrentApp/Generated/`.
+- [x] Add a Run Script Build Phase invoking `scripts/build-rust.sh` before "Compile Sources".
+- [x] Link `libcore.a` under "Link Binary With Libraries"; add `apps/TorrentApp/Generated/` to the app target's compile sources.
+- [x] Update `ContentView.swift` to display `Text(ping())`.
 
 ### Task 5: Lock down the toolchain and ignore generated artifacts
 
