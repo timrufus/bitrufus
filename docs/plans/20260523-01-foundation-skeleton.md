@@ -14,10 +14,10 @@ Set up the project skeleton: a Cargo workspace with a `core` crate that builds a
 
 ### Task 1: Create Cargo workspace and core crate
 
-- [ ] Initialize root `Cargo.toml` declaring a single workspace member `core`.
-- [ ] Create `core/Cargo.toml` with `crate-type = ["staticlib", "cdylib"]` and minimal deps (`uniffi`, `tokio` with `rt-multi-thread`, `thiserror`).
-- [ ] Add a `[[bin]] uniffi-bindgen` entry pointing to `core/uniffi-bindgen.rs`.
-- [ ] Verify `cargo build` succeeds and produces `target/release/libcore.a`.
+- [x] Initialize root `Cargo.toml` declaring a single workspace member `core`.
+- [x] Create `core/Cargo.toml` with `crate-type = ["staticlib", "cdylib"]` and minimal deps (`uniffi`, `tokio` with `rt-multi-thread`, `thiserror`).
+- [x] Add a `[[bin]] uniffi-bindgen` entry pointing to `core/uniffi-bindgen.rs`.
+- [x] Verify `cargo build` succeeds and produces `target/release/libcore.a`.
 
 ### Task 2: Wire up UniFFI scaffolding
 
