@@ -21,10 +21,10 @@ Set up the project skeleton: a Cargo workspace with a `core` crate that builds a
 
 ### Task 2: Wire up UniFFI scaffolding
 
-- [ ] Add `uniffi::setup_scaffolding!()` to `core/src/lib.rs`.
-- [ ] Implement `core/uniffi-bindgen.rs` calling `uniffi::uniffi_bindgen_main()`.
-- [ ] Export one trivial function: `#[uniffi::export] pub fn ping() -> String`.
-- [ ] Generate Swift bindings via the bindgen binary against the built staticlib and confirm a `torrent_core.swift` plus module map are produced.
+- [x] Add `uniffi::setup_scaffolding!()` to `core/src/lib.rs`.
+- [x] Implement `core/uniffi-bindgen.rs` calling `uniffi::uniffi_bindgen_main()`.
+- [x] Export one trivial function: `#[uniffi::export] pub fn ping() -> String`.
+- [x] Generate Swift bindings via the bindgen binary against the built staticlib and confirm a `torrent_core.swift` plus module map are produced.
 
 ### Task 3: Create Xcode SwiftUI app
 
