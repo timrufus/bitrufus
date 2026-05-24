@@ -6,11 +6,11 @@ Set up the project skeleton: a Cargo workspace with a `core` crate that builds a
 
 ## Validation Commands
 
-- `cargo build --release -p core`
-- `cargo test -p core`
+- `cargo build --release -p bitrufus_core`
+- `cargo test -p bitrufus_core`
 - `cargo clippy --all-targets -- -D warnings`
-- `xcodebuild -project apps/TorrentApp.xcodeproj -scheme TorrentApp -configuration Debug build`
-- Manual: open `apps/TorrentApp.xcodeproj`, press ⌘R, confirm app window displays "pong".
+- `xcodebuild -project BitRufus.xcodeproj -scheme BitRufus -configuration Debug build`
+- Manual: open `BitRufus.xcodeproj`, press ⌘R, confirm app window displays "pong".
 
 ### Task 1: Create Cargo workspace and core crate
 

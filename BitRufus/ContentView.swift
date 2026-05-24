@@ -7,9 +7,15 @@
 
 import SwiftUI
 
+private struct TorrentEntry: Identifiable {
+    let id = UUID()
+    let name: String
+}
+
 struct ContentView: View {
     @State private var magnetText = ""
-    @State private var torrents: [String] = []
+    @State private var torrents: [TorrentEntry] = []
+    @State private var rustPing = ""
 
     var body: some View {
         VStack(spacing: 12) {
@@ -17,13 +23,14 @@ struct ContentView: View {
                 TextField("Paste magnet link…", text: $magnetText)
                     .textFieldStyle(.roundedBorder)
                 Button("Add") {
-                    torrents.append(magnetText.isEmpty ? "untitled" : String(magnetText.prefix(40)))
+                    let name = magnetText.isEmpty ? "untitled" : String(magnetText.prefix(40))
+                    torrents.append(TorrentEntry(name: name))
                     magnetText = ""
                 }
             }
-            List(torrents, id: \.self) { name in
+            List(torrents) { entry in
                 HStack {
-                    Text(name)
+                    Text(entry.name)
                     Spacer()
                     ProgressView(value: 0.3)
                         .frame(width: 120)
@@ -32,11 +39,13 @@ struct ContentView: View {
         }
         .padding()
         .frame(minWidth: 500, minHeight: 300)
+        .onAppear { rustPing = ping() }
         .safeAreaInset(edge: .bottom) {
-            Text("Rust: \(ping())")
+            Text("Rust: \(rustPing)")
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .padding(4)
+                .accessibilityIdentifier("rust-ping-label")
         }
     }
 }
