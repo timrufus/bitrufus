@@ -13,9 +13,9 @@ Wrap librqbit's `Session` behind a small Rust-side `Engine` API exposed via UniF
 
 ### Task 1: Define shared FFI types and error enum
 
-- [ ] Create `core/src/types.rs` with a UniFFI-exported `TorrentInfo` record (`id`, `info_hash`, `name`, `total_bytes`).
-- [ ] Define `EngineError` enum with `InvalidMagnet`, `NotFound`, `Io`, `Backend` variants, deriving `uniffi::Error` and `thiserror::Error`.
-- [ ] Re-export types from `lib.rs`; confirm `cargo build` produces no UniFFI warnings or codegen issues.
+- [x] Create `core/src/types.rs` with a UniFFI-exported `TorrentInfo` record (`id`, `info_hash`, `name`, `total_bytes`).
+- [x] Define `EngineError` enum with `InvalidMagnet`, `NotFound`, `Io`, `Backend` variants, deriving `uniffi::Error` and `thiserror::Error`.
+- [x] Re-export types from `lib.rs`; confirm `cargo build` produces no UniFFI warnings or codegen issues.
 
 ### Task 2: Implement Engine with session and persistence
 

@@ -1,5 +1,8 @@
 uniffi::setup_scaffolding!();
 
+mod types;
+pub use types::{EngineError, TorrentInfo};
+
 #[uniffi::export]
 pub fn ping() -> String {
     "pong".to_string()
