@@ -22,12 +22,27 @@ case "${CONFIGURATION:-Debug}" in
         ;;
 esac
 
-# Map Xcode CURRENT_ARCH to Rust target triple (CURRENT_ARCH is the arch being built, not the host)
-case "${CURRENT_ARCH:-arm64}" in
+# Map Xcode CURRENT_ARCH to Rust target triple.
+# CURRENT_ARCH is "undefined_arch" when the Run Script phase isn't per-arch
+# (the default for target-level scripts). Fall back to ARCHS if it's a single
+# value, otherwise to the host arch via `uname -m`.
+ARCH="${CURRENT_ARCH:-}"
+if [ -z "${ARCH}" ] || [ "${ARCH}" = "undefined_arch" ]; then
+    if [ -n "${ARCHS:-}" ] && [ "$(echo "${ARCHS}" | wc -w | tr -d ' ')" = "1" ]; then
+        ARCH="${ARCHS}"
+    else
+        case "$(uname -m)" in
+            arm64)  ARCH="arm64" ;;
+            x86_64) ARCH="x86_64" ;;
+        esac
+    fi
+fi
+
+case "${ARCH}" in
     arm64)  RUST_TARGET="aarch64-apple-darwin" ;;
     x86_64) RUST_TARGET="x86_64-apple-darwin" ;;
     *)
-        echo "error: unsupported CURRENT_ARCH=${CURRENT_ARCH:-unknown}" >&2
+        echo "error: unsupported arch=${ARCH:-unknown} (CURRENT_ARCH=${CURRENT_ARCH:-unset} ARCHS=${ARCHS:-unset})" >&2
         exit 1
         ;;
 esac
