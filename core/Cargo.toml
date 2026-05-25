@@ -17,3 +17,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 thiserror = "2"
 librqbit = "8.1.1"
 directories = "6"
+
+[dev-dependencies]
+tempfile = "3"

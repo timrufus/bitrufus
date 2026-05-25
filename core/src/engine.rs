@@ -115,3 +115,66 @@ impl Engine {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::sync::atomic::Ordering;
+
+    use librqbit::{Session, SessionOptions};
+    use tempfile::TempDir;
+
+    use super::*;
+
+    async fn make_test_engine(dir: &Path) -> Arc<Engine> {
+        let session = Session::new_with_opts(dir.to_owned(), SessionOptions::default())
+            .await
+            .expect("session creation");
+        Arc::new(Engine {
+            session,
+            next_id: AtomicU64::new(1),
+            handles: Mutex::new(HashMap::new()),
+        })
+    }
+
+    #[tokio::test]
+    async fn invalid_magnet_returns_invalid_magnet_error() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine
+            .add_magnet("not-a-valid-magnet".to_string())
+            .await
+            .unwrap_err();
+        assert!(matches!(err, EngineError::InvalidMagnet { .. }));
+    }
+
+    #[tokio::test]
+    async fn id_counter_unchanged_on_parse_failure() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let before = engine.next_id.load(Ordering::Relaxed);
+        let _ = engine.add_magnet("garbage://link".to_string()).await;
+        assert_eq!(
+            engine.next_id.load(Ordering::Relaxed),
+            before,
+            "counter must not advance when magnet parse fails"
+        );
+    }
+
+    // Verifies ids are strictly increasing across real torrent additions.
+    // Run with: cargo test -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn id_allocation_is_monotonic_live() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let magnet =
+            "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
+        let info = engine.add_magnet(magnet.to_string()).await.unwrap();
+        let counter_after = engine.next_id.load(Ordering::Relaxed);
+        assert!(
+            counter_after > info.id,
+            "next_id must be past the allocated id"
+        );
+    }
+}

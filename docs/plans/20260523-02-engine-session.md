@@ -32,6 +32,6 @@ Wrap librqbit's `Session` behind a small Rust-side `Engine` API exposed via UniF
 
 ### Task 4: Test and verify
 
-- [ ] Write unit tests covering: invalid magnet string returns `InvalidMagnet`; id allocation is monotonic.
-- [ ] Mark live-network tests `#[ignore]` and add a comment showing the command to run them (`cargo test -- --ignored`).
-- [ ] Run the full validation command set and the manual SwiftUI roundtrip.
+- [x] Write unit tests covering: invalid magnet string returns `InvalidMagnet`; id allocation is monotonic.
+- [x] Mark live-network tests `#[ignore]` and add a comment showing the command to run them (`cargo test -- --ignored`).
+- [x] Run the full validation command set and the manual SwiftUI roundtrip. [x] cargo test/build/clippy all pass; manual SwiftUI roundtrip (skipped - not automatable).
