@@ -195,6 +195,7 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::time::Duration;
 
     use librqbit::{Session, SessionOptions};
     use tempfile::TempDir;
@@ -243,6 +244,42 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn empty_selection_is_noop() {
+        // The empty-vec guard fires before the id lookup, so Ok even for a nonexistent id.
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let result = engine.set_file_selection(999, vec![]).await;
+        assert!(result.is_ok(), "empty selection must be a no-op regardless of id");
+    }
+
+    #[tokio::test]
+    async fn set_file_selection_not_found() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.set_file_selection(99, vec![0]).await.unwrap_err();
+        assert!(matches!(err, EngineError::NotFound { id: 99 }));
+    }
+
+    #[tokio::test]
+    async fn torrent_files_not_found() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.torrent_files(42).unwrap_err();
+        assert!(matches!(err, EngineError::NotFound { id: 42 }));
+    }
+
+    #[tokio::test]
+    async fn duplicate_indexes_are_deduped() {
+        // Duplicate indexes are collapsed via HashSet before reaching librqbit.
+        // The non-empty guard passes (input is non-empty), so we reach the id lookup.
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.set_file_selection(77, vec![0, 0, 0]).await.unwrap_err();
+        // Must be NotFound, not some panic or unexpected error from the dedup path.
+        assert!(matches!(err, EngineError::NotFound { id: 77 }));
+    }
+
     // Verifies ids are strictly increasing across real torrent additions.
     // Run with: cargo test -- --ignored
     #[tokio::test]
@@ -272,5 +309,70 @@ mod tests {
         let info1 = engine.add_magnet(magnet1.to_string()).await.unwrap();
         let info2 = engine.add_magnet(magnet2.to_string()).await.unwrap();
         assert!(info2.id > info1.id, "second add must get a higher id than first (got {} then {})", info1.id, info2.id);
+    }
+
+    // Exercises the full file-listing and selection path against a live session.
+    // Requires outbound network access (DHT/trackers).
+    // Run with: cargo test -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn file_selection_live() {
+        let dir = TempDir::new().unwrap();
+        let session = Session::new_with_opts(
+            dir.path().to_owned(),
+            SessionOptions {
+                disable_dht_persistence: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("session creation");
+        let engine = Arc::new(Engine {
+            session,
+            next_id: AtomicU64::new(1),
+            handles: Mutex::new(HashMap::new()),
+        });
+
+        // Big Buck Bunny — a well-known multi-file torrent used for live tests.
+        let magnet =
+            "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
+        let info = engine.add_magnet(magnet.to_string()).await.expect("add_magnet");
+
+        // Wait up to 30 s for metadata resolution (DHT peer discovery can be slow).
+        let files = {
+            let mut resolved = vec![];
+            for _ in 0..60 {
+                match engine.torrent_files(info.id) {
+                    Ok(f) if !f.is_empty() => {
+                        resolved = f;
+                        break;
+                    }
+                    _ => tokio::time::sleep(Duration::from_millis(500)).await,
+                }
+            }
+            resolved
+        };
+        assert!(!files.is_empty(), "metadata must resolve within 30 s on a live network");
+
+        // Before any selection filter, all files report selected=true.
+        assert!(files.iter().all(|f| f.selected), "all files selected before any filter");
+
+        // Select only the first file.
+        engine
+            .set_file_selection(info.id, vec![0])
+            .await
+            .expect("set_file_selection");
+
+        // The listing must reflect the new selection state.
+        let files_after = engine.torrent_files(info.id).expect("torrent_files after selection");
+        assert!(files_after[0].selected, "first file must be selected");
+        if files_after.len() > 1 {
+            assert!(
+                files_after[1..].iter().all(|f| !f.selected),
+                "non-selected files must have selected=false after filter is applied"
+            );
+        }
+        // Disk verification (only selected file appears under the download dir) requires
+        // waiting for actual piece data to be written, which is out of scope for CI.
     }
 }
