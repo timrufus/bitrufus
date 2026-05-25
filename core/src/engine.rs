@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex};
 use directories::ProjectDirs;
 use librqbit::{
     AddTorrent, AddTorrentOptions, AddTorrentResponse, Magnet, ManagedTorrent, Session,
-    SessionOptions, SessionPersistenceConfig,
+    SessionOptions, SessionPersistenceConfig, TorrentStatsState,
 };
 
-use crate::types::{EngineError, FileInfo, TorrentInfo};
+use crate::types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStats};
 
 type TorrentHandle = Arc<ManagedTorrent>;
 
@@ -169,6 +169,61 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    pub fn torrent_stats(&self, id: u64) -> Result<TorrentStats, EngineError> {
+        let handle = {
+            let handles = self.handles.lock().expect("handles lock poisoned");
+            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+        };
+
+        let rq = handle.stats();
+
+        let state = match (rq.state, rq.finished) {
+            (TorrentStatsState::Initializing, _) => TorrentState::Initializing,
+            (TorrentStatsState::Paused, _) => TorrentState::Paused,
+            (TorrentStatsState::Live, false) => TorrentState::Downloading,
+            (TorrentStatsState::Live, true) => TorrentState::Seeding,
+            (TorrentStatsState::Error, _) => TorrentState::Error,
+        };
+
+        let (download_speed_bps, upload_speed_bps, peer_count) = rq
+            .live
+            .map(|live| {
+                let dl = (live.download_speed.mbps * 1_048_576.0) as u64;
+                let ul = (live.upload_speed.mbps * 1_048_576.0) as u64;
+                let peers = live.snapshot.peer_stats.live as u32;
+                (dl, ul, peers)
+            })
+            .unwrap_or((0, 0, 0));
+
+        Ok(TorrentStats {
+            id,
+            state,
+            downloaded_bytes: rq.progress_bytes,
+            total_bytes: rq.total_bytes,
+            download_speed_bps,
+            upload_speed_bps,
+            peer_count,
+        })
+    }
+
+    pub fn list_torrents(&self) -> Vec<TorrentInfo> {
+        let handles = self.handles.lock().expect("handles lock poisoned");
+        let mut result: Vec<TorrentInfo> = handles
+            .iter()
+            .map(|(&id, handle)| {
+                let stats = handle.stats();
+                TorrentInfo {
+                    id,
+                    info_hash: handle.info_hash().as_string(),
+                    name: handle.name().unwrap_or_default(),
+                    total_bytes: stats.total_bytes,
+                }
+            })
+            .collect();
+        result.sort_by_key(|t| t.id);
+        result
     }
 
     pub fn torrent_files(&self, id: u64) -> Result<Vec<FileInfo>, EngineError> {
@@ -344,6 +399,21 @@ mod tests {
         let engine = make_test_engine(dir.path()).await;
         let err = engine.set_file_selection(99, vec![0]).await.unwrap_err();
         assert!(matches!(err, EngineError::NotFound { id: 99 }));
+    }
+
+    #[tokio::test]
+    async fn torrent_stats_not_found() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.torrent_stats(55).unwrap_err();
+        assert!(matches!(err, EngineError::NotFound { id: 55 }));
+    }
+
+    #[tokio::test]
+    async fn list_torrents_empty() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        assert_eq!(engine.list_torrents().len(), 0);
     }
 
     #[tokio::test]

@@ -19,9 +19,9 @@ Round out the engine API with everything Swift needs to drive the UI: a snapshot
 
 ### Task 2: Read stats and list torrents
 
-- [ ] Implement `pub fn torrent_stats(&self, id: u64) -> Result<TorrentStats, EngineError>` reading from the handle's current stats.
-- [ ] Implement `pub fn list_torrents(&self) -> Vec<TorrentInfo>` returning info for every active id.
-- [ ] Both are synchronous `fn` — they read in-memory state with no I/O.
+- [x] Implement `pub fn torrent_stats(&self, id: u64) -> Result<TorrentStats, EngineError>` reading from the handle's current stats.
+- [x] Implement `pub fn list_torrents(&self) -> Vec<TorrentInfo>` returning info for every active id.
+- [x] Both are synchronous `fn` — they read in-memory state with no I/O.
 
 ### Task 3: Pause, resume, remove
 

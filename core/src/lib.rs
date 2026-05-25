@@ -1,7 +1,7 @@
 uniffi::setup_scaffolding!();
 
 mod types;
-pub use types::{EngineError, FileInfo, TorrentInfo};
+pub use types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStats};
 
 mod engine;
 pub use engine::Engine;
