@@ -9,7 +9,7 @@ use librqbit::{
     SessionOptions, SessionPersistenceConfig,
 };
 
-use crate::types::{EngineError, TorrentInfo};
+use crate::types::{EngineError, FileInfo, TorrentInfo};
 
 type TorrentHandle = Arc<ManagedTorrent>;
 
@@ -132,6 +132,33 @@ impl Engine {
             name,
             total_bytes: stats.total_bytes,
         })
+    }
+
+    pub fn torrent_files(&self, id: u64) -> Result<Vec<FileInfo>, EngineError> {
+        let handle = {
+            let handles = self.handles.lock().expect("handles lock poisoned");
+            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+        };
+
+        let only_files = handle.only_files();
+
+        handle
+            .with_metadata(|metadata| {
+                metadata
+                    .file_infos
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, fi)| FileInfo {
+                        index: idx as u32,
+                        path: fi.relative_filename.to_string_lossy().into_owned(),
+                        size_bytes: fi.len,
+                        selected: only_files.as_ref().is_none_or(|sel| sel.contains(&idx)),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|e| EngineError::Backend {
+                reason: e.to_string(),
+            })
     }
 }
 

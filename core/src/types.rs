@@ -1,4 +1,12 @@
 #[derive(uniffi::Record, Clone, Debug)]
+pub struct FileInfo {
+    pub index: u32,
+    pub path: String,
+    pub size_bytes: u64,
+    pub selected: bool,
+}
+
+#[derive(uniffi::Record, Clone, Debug)]
 pub struct TorrentInfo {
     pub id: u64,
     pub info_hash: String,

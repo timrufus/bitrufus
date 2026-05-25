@@ -13,9 +13,9 @@ Expose per-file metadata and selection control on the engine. Swift can query a 
 
 ### Task 1: Define FileInfo and listing API
 
-- [ ] Add `FileInfo { index, path, size_bytes, selected }` to `core/src/types.rs`.
-- [ ] Implement `pub fn torrent_files(&self, id: u64) -> Result<Vec<FileInfo>, EngineError>` reading the resolved torrent info and the current selection state.
-- [ ] Return `NotFound` if the id is not in the map; never panic on a stale id from the UI.
+- [x] Add `FileInfo { index, path, size_bytes, selected }` to `core/src/types.rs`.
+- [x] Implement `pub fn torrent_files(&self, id: u64) -> Result<Vec<FileInfo>, EngineError>` reading the resolved torrent info and the current selection state.
+- [x] Return `NotFound` if the id is not in the map; never panic on a stale id from the UI.
 
 ### Task 2: Implement file selection
 
