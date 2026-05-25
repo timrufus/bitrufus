@@ -502,6 +502,87 @@ mod tests {
         assert!(info2.id > info1.id, "second add must get a higher id than first (got {} then {})", info1.id, info2.id);
     }
 
+    // The state-mapping from librqbit to TorrentState is enforced at compile time by the
+    // exhaustive match in torrent_stats (no wildcard arm). This test instantiates every
+    // TorrentState variant to catch any future enum renames/removals at compile time.
+    #[test]
+    fn state_mapping_all_variants_accessible() {
+        let variants = [
+            TorrentState::Paused,
+            TorrentState::Initializing,
+            TorrentState::Downloading,
+            TorrentState::Seeding,
+            TorrentState::Error,
+        ];
+        // Five variants match the five rows in the types.rs mapping table.
+        assert_eq!(variants.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn pause_not_found() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.pause(99).await.unwrap_err();
+        assert!(matches!(err, EngineError::NotFound { id: 99 }));
+    }
+
+    #[tokio::test]
+    async fn resume_not_found() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.resume(42).await.unwrap_err();
+        assert!(matches!(err, EngineError::NotFound { id: 42 }));
+    }
+
+    #[tokio::test]
+    async fn remove_not_found() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.remove(7, false).await.unwrap_err();
+        assert!(matches!(err, EngineError::NotFound { id: 7 }));
+    }
+
+    // Verifies that after remove() the handle is erased from the id map.
+    // Requires outbound network access (DHT/trackers) to add the torrent.
+    // Run with: cargo test -- --ignored
+    #[tokio::test]
+    #[ignore]
+    async fn remove_cleans_up_handle_map_live() {
+        let dir = TempDir::new().unwrap();
+        let session = Session::new_with_opts(
+            dir.path().to_owned(),
+            SessionOptions {
+                disable_dht_persistence: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("session creation");
+        let engine = Arc::new(Engine {
+            session,
+            download_dir: dir.path().to_owned(),
+            next_id: AtomicU64::new(1),
+            handles: Mutex::new(HashMap::new()),
+        });
+
+        let magnet =
+            "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
+        let info = engine.add_magnet(magnet.to_string()).await.expect("add_magnet");
+        assert_eq!(engine.handles.lock().unwrap().len(), 1);
+
+        engine.remove(info.id, false).await.expect("remove");
+        assert_eq!(
+            engine.handles.lock().unwrap().len(),
+            0,
+            "handle must be removed from the map after remove()"
+        );
+        // Confirm torrent_stats now returns NotFound.
+        assert!(matches!(
+            engine.torrent_stats(info.id),
+            Err(EngineError::NotFound { .. })
+        ));
+    }
+
     // Exercises the full file-listing and selection path against a live session.
     // Requires outbound network access (DHT/trackers).
     // Run with: cargo test -- --ignored
