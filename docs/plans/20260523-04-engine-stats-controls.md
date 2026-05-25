@@ -13,9 +13,9 @@ Round out the engine API with everything Swift needs to drive the UI: a snapshot
 
 ### Task 1: Stats snapshot type
 
-- [ ] Add `TorrentStats { id, state, downloaded_bytes, total_bytes, download_speed_bps, upload_speed_bps, peer_count }` to `core/src/types.rs`.
-- [ ] Define `TorrentState` enum with `Paused`, `Initializing`, `Downloading`, `Seeding`, `Error`; map exhaustively from librqbit's internal state.
-- [ ] Document the mapping in a comment so future librqbit upgrades that add states are caught by `cargo test`.
+- [x] Add `TorrentStats { id, state, downloaded_bytes, total_bytes, download_speed_bps, upload_speed_bps, peer_count }` to `core/src/types.rs`.
+- [x] Define `TorrentState` enum with `Paused`, `Initializing`, `Downloading`, `Seeding`, `Error`; map exhaustively from librqbit's internal state.
+- [x] Document the mapping in a comment so future librqbit upgrades that add states are caught by `cargo test`.
 
 ### Task 2: Read stats and list torrents
 
