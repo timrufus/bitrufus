@@ -19,10 +19,10 @@ Wrap librqbit's `Session` behind a small Rust-side `Engine` API exposed via UniF
 
 ### Task 2: Implement Engine with session and persistence
 
-- [ ] Add `librqbit` and `directories` to `core/Cargo.toml` — verify the published version's API matches the calls below before coding.
-- [ ] Create `core/src/engine.rs` with `Engine` as a `uniffi::Object` holding an `Arc<Session>`, an `AtomicU64` for ids, and a `Mutex<HashMap<u64, ManagedTorrentHandle>>`.
-- [ ] Implement `#[uniffi::constructor] pub async fn new(download_dir: String)` creating the session with JSON persistence pointed at the macOS Application Support directory.
-- [ ] Ensure the session restores any previously persisted torrents during construction and that the id map is populated from restored handles.
+- [x] Add `librqbit` and `directories` to `core/Cargo.toml` — verify the published version's API matches the calls below before coding.
+- [x] Create `core/src/engine.rs` with `Engine` as a `uniffi::Object` holding an `Arc<Session>`, an `AtomicU64` for ids, and a `Mutex<HashMap<u64, ManagedTorrentHandle>>`.
+- [x] Implement `#[uniffi::constructor] pub async fn new(download_dir: String)` creating the session with JSON persistence pointed at the macOS Application Support directory.
+- [x] Ensure the session restores any previously persisted torrents during construction and that the id map is populated from restored handles.
 
 ### Task 3: Implement add_magnet
 

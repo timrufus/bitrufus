@@ -15,3 +15,5 @@ path = "uniffi-bindgen.rs"
 uniffi = { version = "0.29", features = ["build", "cli"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 thiserror = "2"
+librqbit = "8.1.1"
+directories = "6"
