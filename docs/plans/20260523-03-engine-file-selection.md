@@ -19,9 +19,9 @@ Expose per-file metadata and selection control on the engine. Swift can query a 
 
 ### Task 2: Implement file selection
 
-- [ ] Add `pub async fn set_file_selection(&self, id: u64, selected_indexes: Vec<u32>) -> Result<(), EngineError>` that calls librqbit's update-only-files API (verify the exact method name against the installed version before writing the call).
-- [ ] Unpause the torrent after selection is applied if at least one file is selected.
-- [ ] Treat an empty selection as a no-op (do not unpause) — never start a download with zero files.
+- [x] Add `pub async fn set_file_selection(&self, id: u64, selected_indexes: Vec<u32>) -> Result<(), EngineError>` that calls librqbit's update-only-files API (verify the exact method name against the installed version before writing the call).
+- [x] Unpause the torrent after selection is applied if at least one file is selected.
+- [x] Treat an empty selection as a no-op (do not unpause) — never start a download with zero files.
 
 ### Task 3: Test and verify
 

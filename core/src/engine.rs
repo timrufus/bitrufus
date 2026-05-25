@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -132,6 +132,36 @@ impl Engine {
             name,
             total_bytes: stats.total_bytes,
         })
+    }
+
+    pub async fn set_file_selection(
+        &self,
+        id: u64,
+        selected_indexes: Vec<u32>,
+    ) -> Result<(), EngineError> {
+        if selected_indexes.is_empty() {
+            return Ok(());
+        }
+
+        let handle = {
+            let handles = self.handles.lock().expect("handles lock poisoned");
+            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+        };
+
+        let only_files: HashSet<usize> =
+            selected_indexes.into_iter().map(|i| i as usize).collect();
+
+        self.session
+            .update_only_files(&handle, &only_files)
+            .await
+            .map_err(|e| EngineError::Backend { reason: e.to_string() })?;
+
+        self.session
+            .unpause(&handle)
+            .await
+            .map_err(|e| EngineError::Backend { reason: e.to_string() })?;
+
+        Ok(())
     }
 
     pub fn torrent_files(&self, id: u64) -> Result<Vec<FileInfo>, EngineError> {
