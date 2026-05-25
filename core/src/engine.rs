@@ -208,6 +208,43 @@ impl Engine {
         })
     }
 
+    pub async fn pause(&self, id: u64) -> Result<(), EngineError> {
+        let handle = {
+            let handles = self.handles.lock().expect("handles lock poisoned");
+            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+        };
+        self.session
+            .pause(&handle)
+            .await
+            .map_err(|e| EngineError::Backend { reason: e.to_string() })
+    }
+
+    pub async fn resume(&self, id: u64) -> Result<(), EngineError> {
+        let handle = {
+            let handles = self.handles.lock().expect("handles lock poisoned");
+            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+        };
+        match self.session.unpause(&handle).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.to_string().contains("already live") => Ok(()),
+            Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
+        }
+    }
+
+    pub async fn remove(&self, id: u64, delete_files: bool) -> Result<(), EngineError> {
+        let handle = {
+            let handles = self.handles.lock().expect("handles lock poisoned");
+            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+        };
+        let librqbit_id = handle.id();
+        self.session
+            .delete(librqbit::api::TorrentIdOrHash::Id(librqbit_id), delete_files)
+            .await
+            .map_err(|e| EngineError::Backend { reason: e.to_string() })?;
+        self.handles.lock().expect("handles lock poisoned").remove(&id);
+        Ok(())
+    }
+
     pub fn list_torrents(&self) -> Vec<TorrentInfo> {
         let handles = self.handles.lock().expect("handles lock poisoned");
         let mut result: Vec<TorrentInfo> = handles

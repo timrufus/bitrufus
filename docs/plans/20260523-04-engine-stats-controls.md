@@ -25,9 +25,9 @@ Round out the engine API with everything Swift needs to drive the UI: a snapshot
 
 ### Task 3: Pause, resume, remove
 
-- [ ] Implement `pub async fn pause(&self, id: u64) -> Result<(), EngineError>` and `pub async fn resume(&self, id: u64) -> Result<(), EngineError>`.
-- [ ] Implement `pub async fn remove(&self, id: u64, delete_files: bool) -> Result<(), EngineError>` calling librqbit's delete (with or without on-disk data), then removing the entry from the id map.
-- [ ] Confirm librqbit updates its persistence file so the torrent does not reappear after a relaunch.
+- [x] Implement `pub async fn pause(&self, id: u64) -> Result<(), EngineError>` and `pub async fn resume(&self, id: u64) -> Result<(), EngineError>`.
+- [x] Implement `pub async fn remove(&self, id: u64, delete_files: bool) -> Result<(), EngineError>` calling librqbit's delete (with or without on-disk data), then removing the entry from the id map.
+- [x] Confirm librqbit updates its persistence file so the torrent does not reappear after a relaunch.
 
 ### Task 4: Test and verify
 
