@@ -41,11 +41,12 @@ Pinned to `1.95.0` via `rust-toolchain.toml`. Do not change without verifying Un
 
 ## Core Dependencies
 
-- `uniffi = "0.29"` (features: `build`, `cli`) — FFI binding generator
+- `uniffi = "0.29"` (features: `build`, `cli`, `tokio`) — FFI binding generator
 - `tokio = "1"` (features: `rt-multi-thread`, `macros`)
 - `thiserror = "2"`
 - `librqbit = "8.1.1"` — torrent backend (Session, ManagedTorrent, etc.); version is load-bearing for API compatibility
 - `directories = "6"` — resolves the macOS Application Support path for JSON session persistence
+- `tempfile` (dev-dependency) — creates temporary directories in tests; not linked into the final binary
 
 ## Build Commands
 

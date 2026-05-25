@@ -16,6 +16,7 @@ type TorrentHandle = Arc<ManagedTorrent>;
 #[derive(uniffi::Object)]
 pub struct Engine {
     session: Arc<Session>,
+    download_dir: PathBuf,
     next_id: AtomicU64,
     handles: Mutex<HashMap<u64, TorrentHandle>>,
 }
@@ -38,7 +39,8 @@ impl Engine {
             ..Default::default()
         };
 
-        let session = Session::new_with_opts(PathBuf::from(download_dir), opts)
+        let download_dir = PathBuf::from(download_dir);
+        let session = Session::new_with_opts(download_dir.clone(), opts)
             .await
             .map_err(|e| EngineError::Backend {
                 reason: e.to_string(),
@@ -59,6 +61,7 @@ impl Engine {
 
         Ok(Arc::new(Self {
             session,
+            download_dir,
             next_id: AtomicU64::new(next_counter),
             handles: Mutex::new(map),
         }))
@@ -93,32 +96,29 @@ impl Engine {
                 reason: e.to_string(),
             })?;
 
-        let (id, handle) = match response {
-            AddTorrentResponse::Added(_, h) => {
-                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-                self.handles.lock().expect("handles lock poisoned").insert(id, h.clone());
-                (id, h)
-            }
-            AddTorrentResponse::AlreadyManaged(_, h) => {
-                // Hold the lock across both the lookup and the conditional insert so two
-                // concurrent duplicate-add calls cannot both observe missing and allocate
-                // separate IDs for the same handle.
-                let mut map = self.handles.lock().expect("handles lock poisoned");
-                let existing = map.iter().find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
-                let id = if let Some(id) = existing {
-                    id
-                } else {
-                    let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-                    map.insert(id, h.clone());
-                    id
-                };
-                (id, h)
-            }
+        // Resolve the handle from either variant, rejecting the unused ListOnly path.
+        let h = match response {
+            AddTorrentResponse::Added(_, h) | AddTorrentResponse::AlreadyManaged(_, h) => h,
             AddTorrentResponse::ListOnly(_) => {
                 return Err(EngineError::Backend {
                     reason: "unexpected list_only response".to_string(),
                 });
             }
+        };
+        // Hold the lock across both the ptr_eq lookup and the conditional insert so two
+        // concurrent adds (including the case where librqbit returns Added twice for the
+        // same magnet) cannot allocate separate IDs for the same handle.
+        let (id, handle) = {
+            let mut map = self.handles.lock().expect("handles lock poisoned");
+            let existing = map.iter().find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
+            let id = if let Some(id) = existing {
+                id
+            } else {
+                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                map.insert(id, h.clone());
+                id
+            };
+            (id, h)
         };
 
         let stats = handle.stats();
@@ -156,10 +156,17 @@ impl Engine {
             .await
             .map_err(|e| EngineError::Backend { reason: e.to_string() })?;
 
-        self.session
-            .unpause(&handle)
-            .await
-            .map_err(|e| EngineError::Backend { reason: e.to_string() })?;
+        // Remove files that are no longer selected so they don't linger on disk as
+        // pre-allocated stubs created during librqbit's initialization phase.
+        self.delete_non_selected_files(&handle, &only_files);
+
+        // Unpause unconditionally; if a concurrent set_file_selection call already
+        // unpaused the torrent the "already live" error is benign — selection was applied.
+        match self.session.unpause(&handle).await {
+            Ok(()) => {}
+            Err(e) if e.to_string().contains("already live") => {}
+            Err(e) => return Err(EngineError::Backend { reason: e.to_string() }),
+        }
 
         Ok(())
     }
@@ -192,6 +199,83 @@ impl Engine {
     }
 }
 
+impl Engine {
+    // Deletes pre-allocated stub files for non-selected files after the initial file
+    // selection. Guards against destroying real data by checking per-file download
+    // progress: a file with any bytes already downloaded is never deleted.
+    // Mirrors librqbit's subfolder layout (get_default_subfolder_for_torrent).
+    // Errors are never propagated — cleanup is best-effort.
+    fn delete_non_selected_files(&self, handle: &TorrentHandle, selected: &HashSet<usize>) {
+        // file_progress[i] is the number of bytes verified for file i; 0 means the
+        // file contains only pre-allocated space, not real torrent data.
+        let file_progress = handle.stats().file_progress;
+
+        let torrent_name = handle.name();
+        let paths: Vec<PathBuf> = match handle.with_metadata(|meta| {
+            let file_count = meta.file_infos.len();
+            // Replicate librqbit's get_default_subfolder_for_torrent logic:
+            // multi-file torrents are placed in a named subdirectory.
+            let base = if file_count >= 2 {
+                if let Some(name) = &torrent_name {
+                    // Strip traversal components (e.g. "../..") from the torrent-supplied
+                    // name before using it as a directory component.
+                    let safe: PathBuf = std::path::Path::new(name.as_str())
+                        .components()
+                        .filter(|c| matches!(c, std::path::Component::Normal(_)))
+                        .collect();
+                    if safe.as_os_str().is_empty() {
+                        self.download_dir.clone()
+                    } else {
+                        self.download_dir.join(safe)
+                    }
+                } else {
+                    // Nameless multi-file: librqbit uses the stem of the largest file.
+                    let stem = meta
+                        .file_infos
+                        .iter()
+                        .filter(|fi| !fi.attrs.padding)
+                        .max_by_key(|fi| fi.len)
+                        .and_then(|fi| fi.relative_filename.file_stem())
+                        .map(PathBuf::from);
+                    stem.map(|s| self.download_dir.join(s))
+                        .unwrap_or_else(|| self.download_dir.clone())
+                }
+            } else {
+                self.download_dir.clone()
+            };
+            meta.file_infos
+                .iter()
+                .enumerate()
+                .filter(|(i, fi)| {
+                    !fi.attrs.padding
+                        && !selected.contains(i)
+                        && file_progress.get(*i).copied().unwrap_or(0) == 0
+                })
+                .filter_map(|(_, fi)| {
+                    // Strip traversal components from the torrent-relative path so a
+                    // crafted file entry cannot escape the download directory.
+                    let safe_rel: PathBuf = fi
+                        .relative_filename
+                        .components()
+                        .filter(|c| matches!(c, std::path::Component::Normal(_)))
+                        .collect();
+                    if safe_rel.as_os_str().is_empty() {
+                        None
+                    } else {
+                        Some(base.join(safe_rel))
+                    }
+                })
+                .collect::<Vec<_>>()
+        }) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        for path in paths {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -215,6 +299,7 @@ mod tests {
         .expect("session creation");
         Arc::new(Engine {
             session,
+            download_dir: dir.to_owned(),
             next_id: AtomicU64::new(1),
             handles: Mutex::new(HashMap::new()),
         })
@@ -270,13 +355,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn duplicate_indexes_are_deduped() {
-        // Duplicate indexes are collapsed via HashSet before reaching librqbit.
-        // The non-empty guard passes (input is non-empty), so we reach the id lookup.
+    async fn set_file_selection_not_found_with_duplicate_indexes() {
+        // Non-empty duplicate input passes the empty guard and reaches the id lookup.
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
         let err = engine.set_file_selection(77, vec![0, 0, 0]).await.unwrap_err();
-        // Must be NotFound, not some panic or unexpected error from the dedup path.
         assert!(matches!(err, EngineError::NotFound { id: 77 }));
     }
 
@@ -299,6 +382,7 @@ mod tests {
         .expect("session creation");
         let engine = Arc::new(Engine {
             session,
+            download_dir: dir.path().to_owned(),
             next_id: AtomicU64::new(1),
             handles: Mutex::new(HashMap::new()),
         });
@@ -329,6 +413,7 @@ mod tests {
         .expect("session creation");
         let engine = Arc::new(Engine {
             session,
+            download_dir: dir.path().to_owned(),
             next_id: AtomicU64::new(1),
             handles: Mutex::new(HashMap::new()),
         });
@@ -365,13 +450,15 @@ mod tests {
 
         // The listing must reflect the new selection state.
         let files_after = engine.torrent_files(info.id).expect("torrent_files after selection");
+        assert!(
+            files_after.len() > 1,
+            "Big Buck Bunny must have >1 file for selection test to be meaningful"
+        );
         assert!(files_after[0].selected, "first file must be selected");
-        if files_after.len() > 1 {
-            assert!(
-                files_after[1..].iter().all(|f| !f.selected),
-                "non-selected files must have selected=false after filter is applied"
-            );
-        }
+        assert!(
+            files_after[1..].iter().all(|f| !f.selected),
+            "non-selected files must have selected=false after filter is applied"
+        );
         // Disk verification (only selected file appears under the download dir) requires
         // waiting for actual piece data to be written, which is out of scope for CI.
     }
