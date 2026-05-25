@@ -4,7 +4,7 @@ A macOS torrent client with a Rust core and SwiftUI frontend, bridged via UniFFI
 
 ## Prerequisites
 
-- macOS 14.0+
+- macOS 13.0+
 - Xcode (latest stable)
 - [Rust toolchain](https://rustup.rs) — version is pinned to `1.95.0` via `rust-toolchain.toml`; `rustup` must be installed so `~/.cargo/bin` is on your PATH
 

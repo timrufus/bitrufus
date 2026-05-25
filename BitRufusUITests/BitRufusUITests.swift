@@ -18,6 +18,7 @@ final class BitRufusUITests: XCTestCase {
         app.launch()
         let label = app.staticTexts["rust-ping-label"]
         XCTAssertTrue(label.waitForExistence(timeout: 5), "Expected rust-ping-label from FFI roundtrip")
+        XCTAssertEqual(label.label, "Rust: pong", "rust-ping-label must show FFI response")
     }
 
     func testLaunchPerformance() throws {

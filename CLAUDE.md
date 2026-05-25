@@ -27,9 +27,13 @@ macOS 13.0. Set in `BitRufus.xcodeproj/project.pbxproj` as `MACOSX_DEPLOYMENT_TA
 
 ## Adding New Rust Functions to Swift
 
-1. Add the function to `core/src/lib.rs` annotated with `#[uniffi::export]`
-2. Build in Xcode (not just `cargo build`) — this triggers binding regeneration
-3. The new function is then available in Swift
+Free functions: add to `core/src/lib.rs` annotated with `#[uniffi::export]`, then build in Xcode.
+
+Object types (classes in Swift): derive `uniffi::Object` on the struct, put methods in `#[uniffi::export] impl MyType { ... }`, and use `#[uniffi::constructor]` for constructors (which must return `Arc<Self>`). Async constructors and methods are supported. After any change, build in Xcode (not just `cargo build`) to regenerate the Swift bindings.
+
+## Session Persistence
+
+The Engine stores torrent state as JSON in `~/Library/Application Support/BitRufus/BitRufus/` (resolved via the `directories` crate at runtime). Deleting this directory resets all persisted torrent state. This is the first place to look when debugging "torrent reappears after restart" or "session not loading" issues.
 
 ## Rust Toolchain
 
@@ -40,6 +44,8 @@ Pinned to `1.95.0` via `rust-toolchain.toml`. Do not change without verifying Un
 - `uniffi = "0.29"` (features: `build`, `cli`) — FFI binding generator
 - `tokio = "1"` (features: `rt-multi-thread`, `macros`)
 - `thiserror = "2"`
+- `librqbit = "8.1.1"` — torrent backend (Session, ManagedTorrent, etc.); version is load-bearing for API compatibility
+- `directories = "6"` — resolves the macOS Application Support path for JSON session persistence
 
 ## Build Commands
 

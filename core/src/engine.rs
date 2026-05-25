@@ -14,23 +14,26 @@ use crate::types::{EngineError, TorrentInfo};
 type TorrentHandle = Arc<ManagedTorrent>;
 
 #[derive(uniffi::Object)]
-#[allow(dead_code)]
 pub struct Engine {
-    pub(crate) session: Arc<Session>,
-    pub(crate) next_id: AtomicU64,
-    pub(crate) handles: Mutex<HashMap<u64, TorrentHandle>>,
+    session: Arc<Session>,
+    next_id: AtomicU64,
+    handles: Mutex<HashMap<u64, TorrentHandle>>,
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl Engine {
     #[uniffi::constructor]
     pub async fn new(download_dir: String) -> Result<Arc<Self>, EngineError> {
         let persistence_folder = ProjectDirs::from("com", "BitRufus", "BitRufus")
-            .map(|dirs| dirs.data_dir().to_owned());
+            .ok_or_else(|| EngineError::Io {
+                reason: "cannot determine application data directory".to_string(),
+            })?
+            .data_dir()
+            .to_owned();
 
         let opts = SessionOptions {
             persistence: Some(SessionPersistenceConfig::Json {
-                folder: persistence_folder,
+                folder: Some(persistence_folder),
             }),
             ..Default::default()
         };
@@ -41,14 +44,22 @@ impl Engine {
                 reason: e.to_string(),
             })?;
 
-        let restored: Vec<TorrentHandle> = session
-            .with_torrents(|iter| iter.map(|(_sid, h)| h.clone()).collect());
-        let next = restored.len() as u64 + 1;
-        let map: HashMap<u64, TorrentHandle> = (1u64..).zip(restored).collect();
+        // Restore previously-persisted torrents. Sort by librqbit's session id so
+        // restored engine IDs are stable across restarts (same torrents → same order).
+        let mut restored: Vec<(usize, TorrentHandle)> =
+            session.with_torrents(|iter| iter.map(|(sid, h)| (sid, h.clone())).collect());
+        restored.sort_unstable_by_key(|(sid, _)| *sid);
+
+        let mut map = HashMap::with_capacity(restored.len());
+        let mut next_counter = 1u64;
+        for (_, h) in restored {
+            map.insert(next_counter, h);
+            next_counter += 1;
+        }
 
         Ok(Arc::new(Self {
             session,
-            next_id: AtomicU64::new(next),
+            next_id: AtomicU64::new(next_counter),
             handles: Mutex::new(map),
         }))
     }
@@ -64,6 +75,9 @@ impl Engine {
                 reason: "magnet link missing BTv1 infohash".to_string(),
             })?
             .as_string();
+
+        // Capture the display name from dn= before the add consumes parsed.
+        let dn = parsed.name.clone();
 
         let response = self
             .session
@@ -82,30 +96,35 @@ impl Engine {
         let (id, handle) = match response {
             AddTorrentResponse::Added(_, h) => {
                 let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-                self.handles.lock().unwrap().insert(id, h.clone());
+                self.handles.lock().expect("handles lock poisoned").insert(id, h.clone());
                 (id, h)
             }
             AddTorrentResponse::AlreadyManaged(_, h) => {
-                let mut map = self.handles.lock().unwrap();
-                let existing_id = map
-                    .iter()
-                    .find(|(_, eh)| eh.info_hash() == h.info_hash())
-                    .map(|(id, _)| *id);
-                let id = match existing_id {
-                    Some(id) => id,
-                    None => {
-                        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-                        map.insert(id, h.clone());
-                        id
-                    }
+                // Hold the lock across both the lookup and the conditional insert so two
+                // concurrent duplicate-add calls cannot both observe missing and allocate
+                // separate IDs for the same handle.
+                let mut map = self.handles.lock().expect("handles lock poisoned");
+                let existing = map.iter().find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
+                let id = if let Some(id) = existing {
+                    id
+                } else {
+                    let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                    map.insert(id, h.clone());
+                    id
                 };
                 (id, h)
             }
-            AddTorrentResponse::ListOnly(_) => unreachable!("list_only not set"),
+            AddTorrentResponse::ListOnly(_) => {
+                return Err(EngineError::Backend {
+                    reason: "unexpected list_only response".to_string(),
+                });
+            }
         };
 
         let stats = handle.stats();
-        let name = handle.name().unwrap_or_default();
+        // For paused magnet-only adds, metadata (name, size) is not resolved until
+        // the torrent contacts trackers/DHT. Fall back to the dn= display name.
+        let name = handle.name().or(dn).unwrap_or_default();
 
         Ok(TorrentInfo {
             id,
@@ -119,7 +138,6 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::sync::atomic::Ordering;
 
     use librqbit::{Session, SessionOptions};
     use tempfile::TempDir;
@@ -127,9 +145,16 @@ mod tests {
     use super::*;
 
     async fn make_test_engine(dir: &Path) -> Arc<Engine> {
-        let session = Session::new_with_opts(dir.to_owned(), SessionOptions::default())
-            .await
-            .expect("session creation");
+        let session = Session::new_with_opts(
+            dir.to_owned(),
+            SessionOptions {
+                disable_dht: true,
+                disable_dht_persistence: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("session creation");
         Arc::new(Engine {
             session,
             next_id: AtomicU64::new(1),
@@ -149,15 +174,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn id_counter_unchanged_on_parse_failure() {
+    async fn handles_map_unchanged_on_parse_failure() {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
-        let before = engine.next_id.load(Ordering::Relaxed);
-        let _ = engine.add_magnet("garbage://link".to_string()).await;
+        let result = engine.add_magnet("garbage://link".to_string()).await;
+        assert!(result.is_err(), "expected error for invalid magnet, got {:?}", result);
         assert_eq!(
-            engine.next_id.load(Ordering::Relaxed),
-            before,
-            "counter must not advance when magnet parse fails"
+            engine.handles.lock().expect("lock").len(),
+            0,
+            "handles map must be empty when magnet parse fails"
         );
     }
 
@@ -167,14 +192,28 @@ mod tests {
     #[ignore]
     async fn id_allocation_is_monotonic_live() {
         let dir = TempDir::new().unwrap();
-        let engine = make_test_engine(dir.path()).await;
-        let magnet =
+        // DHT must be enabled so librqbit can accept magnet-only links (no tracker).
+        // Disable persistence to avoid writing DHT state between test runs.
+        let session = Session::new_with_opts(
+            dir.path().to_owned(),
+            SessionOptions {
+                disable_dht_persistence: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("session creation");
+        let engine = Arc::new(Engine {
+            session,
+            next_id: AtomicU64::new(1),
+            handles: Mutex::new(HashMap::new()),
+        });
+        let magnet1 =
             "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
-        let info = engine.add_magnet(magnet.to_string()).await.unwrap();
-        let counter_after = engine.next_id.load(Ordering::Relaxed);
-        assert!(
-            counter_after > info.id,
-            "next_id must be past the allocated id"
-        );
+        let magnet2 =
+            "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel";
+        let info1 = engine.add_magnet(magnet1.to_string()).await.unwrap();
+        let info2 = engine.add_magnet(magnet2.to_string()).await.unwrap();
+        assert!(info2.id > info1.id, "second add must get a higher id than first (got {} then {})", info1.id, info2.id);
     }
 }
