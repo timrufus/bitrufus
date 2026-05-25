@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use directories::ProjectDirs;
-use librqbit::{ManagedTorrent, Session, SessionOptions, SessionPersistenceConfig};
+use librqbit::{
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, Magnet, ManagedTorrent, Session,
+    SessionOptions, SessionPersistenceConfig,
+};
 
-use crate::types::EngineError;
+use crate::types::{EngineError, TorrentInfo};
 
 type TorrentHandle = Arc<ManagedTorrent>;
 
@@ -48,5 +51,67 @@ impl Engine {
             next_id: AtomicU64::new(next),
             handles: Mutex::new(map),
         }))
+    }
+
+    pub async fn add_magnet(&self, magnet: String) -> Result<TorrentInfo, EngineError> {
+        let parsed = Magnet::parse(&magnet).map_err(|e| EngineError::InvalidMagnet {
+            reason: e.to_string(),
+        })?;
+
+        let info_hash_str = parsed
+            .as_id20()
+            .ok_or_else(|| EngineError::InvalidMagnet {
+                reason: "magnet link missing BTv1 infohash".to_string(),
+            })?
+            .as_string();
+
+        let response = self
+            .session
+            .add_torrent(
+                AddTorrent::from_url(&magnet),
+                Some(AddTorrentOptions {
+                    paused: true,
+                    ..Default::default()
+                }),
+            )
+            .await
+            .map_err(|e| EngineError::Backend {
+                reason: e.to_string(),
+            })?;
+
+        let (id, handle) = match response {
+            AddTorrentResponse::Added(_, h) => {
+                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                self.handles.lock().unwrap().insert(id, h.clone());
+                (id, h)
+            }
+            AddTorrentResponse::AlreadyManaged(_, h) => {
+                let mut map = self.handles.lock().unwrap();
+                let existing_id = map
+                    .iter()
+                    .find(|(_, eh)| eh.info_hash() == h.info_hash())
+                    .map(|(id, _)| *id);
+                let id = match existing_id {
+                    Some(id) => id,
+                    None => {
+                        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                        map.insert(id, h.clone());
+                        id
+                    }
+                };
+                (id, h)
+            }
+            AddTorrentResponse::ListOnly(_) => unreachable!("list_only not set"),
+        };
+
+        let stats = handle.stats();
+        let name = handle.name().unwrap_or_default();
+
+        Ok(TorrentInfo {
+            id,
+            info_hash: info_hash_str,
+            name,
+            total_bytes: stats.total_bytes,
+        })
     }
 }

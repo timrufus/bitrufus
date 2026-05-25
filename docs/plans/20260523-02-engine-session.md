@@ -26,9 +26,9 @@ Wrap librqbit's `Session` behind a small Rust-side `Engine` API exposed via UniF
 
 ### Task 3: Implement add_magnet
 
-- [ ] Add `pub async fn add_magnet(&self, magnet: String) -> Result<TorrentInfo, EngineError>` calling `session.add_torrent` with the torrent in paused state.
-- [ ] Allocate a new id, insert the handle into the map, and return a populated `TorrentInfo`.
-- [ ] Map librqbit failures into the appropriate `EngineError` variant; never panic on malformed input.
+- [x] Add `pub async fn add_magnet(&self, magnet: String) -> Result<TorrentInfo, EngineError>` calling `session.add_torrent` with the torrent in paused state.
+- [x] Allocate a new id, insert the handle into the map, and return a populated `TorrentInfo`.
+- [x] Map librqbit failures into the appropriate `EngineError` variant; never panic on malformed input.
 
 ### Task 4: Test and verify
 
