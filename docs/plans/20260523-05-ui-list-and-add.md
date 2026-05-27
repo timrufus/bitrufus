@@ -17,9 +17,9 @@ First SwiftUI plan: build the main window. A list of torrents fed by an `@Observ
 
 ### Task 2: Torrent list view
 
-- [ ] Create `Views/TorrentListView.swift` rendering `List(store.torrents) { TorrentRow(vm: $0) }`.
-- [ ] Implement `TorrentRow` showing the name, total size formatted via `ByteCountFormatter`, and a placeholder `ProgressView(value: 0)`.
-- [ ] Add a toolbar with a `+` button that toggles a sheet binding.
+- [x] Create `Views/TorrentListView.swift` rendering `List(store.torrents) { TorrentRow(vm: $0) }`.
+- [x] Implement `TorrentRow` showing the name, total size formatted via `ByteCountFormatter`, and a placeholder `ProgressView(value: 0)`.
+- [x] Add a toolbar with a `+` button that toggles a sheet binding.
 
 ### Task 3: Add-magnet sheet
 

@@ -11,6 +11,7 @@
 		226E4A4B2FC24F99005F76BD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A4A2FC24F99005F76BD /* ContentView.swift */; };
 		226E4A752FC24F9B005F76BD /* bitrufus_core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A742FC24F9B005F76BD /* bitrufus_core.swift */; };
 		AA1B00032FC24F99005F76AA /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00022FC24F99005F76AA /* AppStore.swift */; };
+		AA1B00052FC24F99005F76AA /* TorrentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00042FC24F99005F76AA /* TorrentListView.swift */; };
 		226E4A4D2FC24F9A005F76BD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 226E4A4C2FC24F9A005F76BD /* Assets.xcassets */; };
 		226E4A502FC24F9A005F76BD /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 226E4A4F2FC24F9A005F76BD /* Preview Assets.xcassets */; };
 		226E4A5B2FC24F9B005F76BD /* BitRufusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A5A2FC24F9B005F76BD /* BitRufusTests.swift */; };
@@ -39,6 +40,7 @@
 		226E4A452FC24F99005F76BD /* BitRufus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BitRufus.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		226E4A482FC24F99005F76BD /* BitRufusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitRufusApp.swift; sourceTree = "<group>"; };
 		AA1B00022FC24F99005F76AA /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		AA1B00042FC24F99005F76AA /* TorrentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentListView.swift; sourceTree = "<group>"; };
 		226E4A4A2FC24F99005F76BD /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		226E4A4C2FC24F9A005F76BD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		226E4A4F2FC24F9A005F76BD /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
@@ -108,6 +110,7 @@
 				226E4A512FC24F9A005F76BD /* BitRufus.entitlements */,
 				226E4A4E2FC24F9A005F76BD /* Preview Content */,
 				AA1B00012FC24F99005F76AA /* ViewModels */,
+				AA1B00062FC24F99005F76AA /* Views */,
 			);
 			path = BitRufus;
 			sourceTree = "<group>";
@@ -118,6 +121,14 @@
 				AA1B00022FC24F99005F76AA /* AppStore.swift */,
 			);
 			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		AA1B00062FC24F99005F76AA /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA1B00042FC24F99005F76AA /* TorrentListView.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		226E4A4E2FC24F9A005F76BD /* Preview Content */ = {
@@ -321,6 +332,7 @@
 				226E4A492FC24F99005F76BD /* BitRufusApp.swift in Sources */,
 				226E4A752FC24F9B005F76BD /* bitrufus_core.swift in Sources */,
 				AA1B00032FC24F99005F76AA /* AppStore.swift in Sources */,
+				AA1B00052FC24F99005F76AA /* TorrentListView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
