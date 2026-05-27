@@ -11,9 +11,9 @@ First SwiftUI plan: build the main window. A list of torrents fed by an `@Observ
 
 ### Task 1: Build the observable store
 
-- [ ] Create `apps/TorrentApp/ViewModels/AppStore.swift` with `@Observable class AppStore` owning a singleton `Engine` instance constructed pointing at `~/Downloads/TorrentApp/`.
-- [ ] Define `var torrents: [TorrentVM]` and `func addMagnet(_ uri: String) async throws`.
-- [ ] Create `TorrentVM` (also `@Observable`) holding `id`, the latest `TorrentInfo`, and an optional `TorrentStats` (populated by a later plan).
+- [x] Create `apps/TorrentApp/ViewModels/AppStore.swift` with `@Observable class AppStore` owning a singleton `Engine` instance constructed pointing at `~/Downloads/TorrentApp/`.
+- [x] Define `var torrents: [TorrentVM]` and `func addMagnet(_ uri: String) async throws`.
+- [x] Create `TorrentVM` (also `@Observable`) holding `id`, the latest `TorrentInfo`, and an optional `TorrentStats` (populated by a later plan).
 
 ### Task 2: Torrent list view
 
