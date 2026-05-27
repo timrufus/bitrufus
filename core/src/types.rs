@@ -24,7 +24,7 @@ pub struct TorrentInfo {
 //   Live  (stats.finished=true)  │  Seeding
 //   Error                        │  Error
 //
-// The exhaustive `match` in Engine::torrent_stats (engine.rs) has no wildcard arm, so
+// The exhaustive `match` in map_torrent_state (engine.rs) has no wildcard arm, so
 // adding a new TorrentStatsState variant in a future librqbit upgrade causes a compile
 // error caught by `cargo build` / `cargo test`.
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]

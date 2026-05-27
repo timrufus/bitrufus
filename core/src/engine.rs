@@ -13,12 +13,21 @@ use crate::types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStat
 
 type TorrentHandle = Arc<ManagedTorrent>;
 
+struct EngineInner {
+    handles: HashMap<u64, TorrentHandle>,
+    // librqbit session IDs currently being deleted. Held from the moment handles.remove()
+    // is called until session.delete() returns, so concurrent add_magnet calls that get
+    // AlreadyManaged for the same torrent can detect the in-flight deletion and bail out
+    // rather than inserting a fresh engine ID that will immediately become a zombie.
+    deleting: HashSet<usize>,
+}
+
 #[derive(uniffi::Object)]
 pub struct Engine {
     session: Arc<Session>,
     download_dir: PathBuf,
     next_id: AtomicU64,
-    handles: Mutex<HashMap<u64, TorrentHandle>>,
+    inner: Mutex<EngineInner>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -46,24 +55,28 @@ impl Engine {
                 reason: e.to_string(),
             })?;
 
-        // Restore previously-persisted torrents. Sort by librqbit's session id so
-        // restored engine IDs are stable across restarts (same torrents → same order).
-        let mut restored: Vec<(usize, TorrentHandle)> =
+        // Restore previously-persisted torrents. Pin each engine ID to
+        // librqbit's own session ID (+ 1 to stay 1-based) so IDs remain
+        // stable across restarts even after a torrent has been removed.
+        let restored: Vec<(usize, TorrentHandle)> =
             session.with_torrents(|iter| iter.map(|(sid, h)| (sid, h.clone())).collect());
-        restored.sort_unstable_by_key(|(sid, _)| *sid);
 
         let mut map = HashMap::with_capacity(restored.len());
-        let mut next_counter = 1u64;
-        for (_, h) in restored {
-            map.insert(next_counter, h);
-            next_counter += 1;
+        let mut max_engine_id: u64 = 0;
+        for (sid, h) in restored {
+            let engine_id = sid as u64 + 1;
+            map.insert(engine_id, h);
+            if engine_id > max_engine_id {
+                max_engine_id = engine_id;
+            }
         }
+        let next_counter = max_engine_id + 1;
 
         Ok(Arc::new(Self {
             session,
             download_dir,
             next_id: AtomicU64::new(next_counter),
-            handles: Mutex::new(map),
+            inner: Mutex::new(EngineInner { handles: map, deleting: HashSet::new() }),
         }))
     }
 
@@ -105,17 +118,27 @@ impl Engine {
                 });
             }
         };
-        // Hold the lock across both the ptr_eq lookup and the conditional insert so two
-        // concurrent adds (including the case where librqbit returns Added twice for the
-        // same magnet) cannot allocate separate IDs for the same handle.
+        // Hold the lock across the deleting check, the ptr_eq lookup, and the conditional
+        // insert so concurrent adds and an in-flight remove cannot race:
+        // - If remove() already pulled this handle's librqbit ID into the deleting set,
+        //   session.delete() is still running; inserting a new engine ID here would create
+        //   a zombie once the delete completes, so we return an error instead.
+        // - The ptr_eq dedup prevents two concurrent adds from allocating separate IDs for
+        //   the same handle (including the case where librqbit returns Added twice).
         let (id, handle) = {
-            let mut map = self.handles.lock().expect("handles lock poisoned");
-            let existing = map.iter().find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
+            let mut inner = self.inner.lock().expect("inner lock poisoned");
+            if inner.deleting.contains(&h.id()) {
+                return Err(EngineError::Backend {
+                    reason: "torrent is currently being deleted".to_string(),
+                });
+            }
+            let existing =
+                inner.handles.iter().find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
             let id = if let Some(id) = existing {
                 id
             } else {
                 let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-                map.insert(id, h.clone());
+                inner.handles.insert(id, h.clone());
                 id
             };
             (id, h)
@@ -144,8 +167,8 @@ impl Engine {
         }
 
         let handle = {
-            let handles = self.handles.lock().expect("handles lock poisoned");
-            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            let inner = self.inner.lock().expect("inner lock poisoned");
+            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
         };
 
         let only_files: HashSet<usize> =
@@ -162,6 +185,7 @@ impl Engine {
 
         // Unpause unconditionally; if a concurrent set_file_selection call already
         // unpaused the torrent the "already live" error is benign — selection was applied.
+        // librqbit bails with "torrent is already live" (torrent_state/mod.rs:322 in 8.1.1).
         match self.session.unpause(&handle).await {
             Ok(()) => {}
             Err(e) if e.to_string().contains("already live") => {}
@@ -173,23 +197,19 @@ impl Engine {
 
     pub fn torrent_stats(&self, id: u64) -> Result<TorrentStats, EngineError> {
         let handle = {
-            let handles = self.handles.lock().expect("handles lock poisoned");
-            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            let inner = self.inner.lock().expect("inner lock poisoned");
+            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
         };
 
         let rq = handle.stats();
 
-        let state = match (rq.state, rq.finished) {
-            (TorrentStatsState::Initializing, _) => TorrentState::Initializing,
-            (TorrentStatsState::Paused, _) => TorrentState::Paused,
-            (TorrentStatsState::Live, false) => TorrentState::Downloading,
-            (TorrentStatsState::Live, true) => TorrentState::Seeding,
-            (TorrentStatsState::Error, _) => TorrentState::Error,
-        };
+        let state = map_torrent_state(rq.state, rq.finished);
 
         let (download_speed_bps, upload_speed_bps, peer_count) = rq
             .live
             .map(|live| {
+                // Speed::mbps is MiB/s (SpeedEstimator::mbps = bps/1024/1024); multiply by
+                // 2^20 to recover bytes/s.
                 let dl = (live.download_speed.mbps * 1_048_576.0) as u64;
                 let ul = (live.upload_speed.mbps * 1_048_576.0) as u64;
                 let peers = live.snapshot.peer_stats.live as u32;
@@ -210,46 +230,70 @@ impl Engine {
 
     pub async fn pause(&self, id: u64) -> Result<(), EngineError> {
         let handle = {
-            let handles = self.handles.lock().expect("handles lock poisoned");
-            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            let inner = self.inner.lock().expect("inner lock poisoned");
+            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
         };
-        self.session
-            .pause(&handle)
-            .await
-            .map_err(|e| EngineError::Backend { reason: e.to_string() })
+        match self.session.pause(&handle).await {
+            Ok(()) => Ok(()),
+            // librqbit bails with "torrent is already paused" when pause is called on a
+            // paused torrent (torrent_state/mod.rs in librqbit 8.1.1). Treat as Ok.
+            Err(e) if e.to_string().contains("already paused") => Ok(()),
+            Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
+        }
     }
 
     pub async fn resume(&self, id: u64) -> Result<(), EngineError> {
         let handle = {
-            let handles = self.handles.lock().expect("handles lock poisoned");
-            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            let inner = self.inner.lock().expect("inner lock poisoned");
+            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
         };
         match self.session.unpause(&handle).await {
             Ok(()) => Ok(()),
+            // librqbit bails with "torrent is already live" when unpause is called on a
+            // running torrent (torrent_state/mod.rs:322 in librqbit 8.1.1). Treat as Ok.
             Err(e) if e.to_string().contains("already live") => Ok(()),
             Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
         }
     }
 
     pub async fn remove(&self, id: u64, delete_files: bool) -> Result<(), EngineError> {
-        let handle = {
-            let handles = self.handles.lock().expect("handles lock poisoned");
-            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+        // Remove from the map and mark as deleting atomically under the same lock.
+        // Inserting into `deleting` before releasing the lock ensures that a concurrent
+        // add_magnet which gets AlreadyManaged from librqbit (because session.delete has
+        // not yet run) will see the tombstone and return an error rather than inserting a
+        // fresh engine ID that would become a zombie once the delete completes.
+        let (librqbit_id, handle) = {
+            let mut inner = self.inner.lock().expect("inner lock poisoned");
+            let h = inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?;
+            let librqbit_id = h.id();
+            inner.handles.remove(&id);
+            inner.deleting.insert(librqbit_id);
+            (librqbit_id, h)
         };
-        let librqbit_id = handle.id();
-        self.session
+        let result = self
+            .session
             .delete(librqbit::api::TorrentIdOrHash::Id(librqbit_id), delete_files)
             .await
-            .map_err(|e| EngineError::Backend { reason: e.to_string() })?;
-        self.handles.lock().expect("handles lock poisoned").remove(&id);
-        Ok(())
+            .map_err(|e| EngineError::Backend { reason: e.to_string() });
+        let mut inner = self.inner.lock().expect("inner lock poisoned");
+        inner.deleting.remove(&librqbit_id);
+        if result.is_err() {
+            // Reinstate the handle so the torrent remains reachable if the delete failed.
+            inner.handles.insert(id, handle);
+        }
+        result
     }
 
     pub fn list_torrents(&self) -> Vec<TorrentInfo> {
-        let handles = self.handles.lock().expect("handles lock poisoned");
-        let mut result: Vec<TorrentInfo> = handles
-            .iter()
-            .map(|(&id, handle)| {
+        // Snapshot the handles and release the lock before calling handle.stats() so
+        // concurrent add/remove callers are not blocked for the full iteration.
+        let snapshot: Vec<(u64, TorrentHandle)> = {
+            let inner = self.inner.lock().expect("inner lock poisoned");
+            inner.handles.iter().map(|(&id, h)| (id, h.clone())).collect()
+        };
+        let mut result: Vec<TorrentInfo> = snapshot
+            .into_iter()
+            .map(|(id, handle)| {
                 let stats = handle.stats();
                 TorrentInfo {
                     id,
@@ -265,8 +309,8 @@ impl Engine {
 
     pub fn torrent_files(&self, id: u64) -> Result<Vec<FileInfo>, EngineError> {
         let handle = {
-            let handles = self.handles.lock().expect("handles lock poisoned");
-            handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            let inner = self.inner.lock().expect("inner lock poisoned");
+            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
         };
 
         let only_files = handle.only_files();
@@ -277,6 +321,7 @@ impl Engine {
                     .file_infos
                     .iter()
                     .enumerate()
+                    .filter(|(_, fi)| !fi.attrs.padding)
                     .map(|(idx, fi)| FileInfo {
                         index: idx as u32,
                         path: fi.relative_filename.to_string_lossy().into_owned(),
@@ -288,6 +333,16 @@ impl Engine {
             .map_err(|e| EngineError::Backend {
                 reason: e.to_string(),
             })
+    }
+}
+
+fn map_torrent_state(state: TorrentStatsState, finished: bool) -> TorrentState {
+    match (state, finished) {
+        (TorrentStatsState::Initializing, _) => TorrentState::Initializing,
+        (TorrentStatsState::Paused, _) => TorrentState::Paused,
+        (TorrentStatsState::Live, false) => TorrentState::Downloading,
+        (TorrentStatsState::Live, true) => TorrentState::Seeding,
+        (TorrentStatsState::Error, _) => TorrentState::Error,
     }
 }
 
@@ -393,7 +448,7 @@ mod tests {
             session,
             download_dir: dir.to_owned(),
             next_id: AtomicU64::new(1),
-            handles: Mutex::new(HashMap::new()),
+            inner: Mutex::new(EngineInner { handles: HashMap::new(), deleting: HashSet::new() }),
         })
     }
 
@@ -415,7 +470,7 @@ mod tests {
         let result = engine.add_magnet("garbage://link".to_string()).await;
         assert!(result.is_err(), "expected error for invalid magnet, got {:?}", result);
         assert_eq!(
-            engine.handles.lock().expect("lock").len(),
+            engine.inner.lock().expect("lock").handles.len(),
             0,
             "handles map must be empty when magnet parse fails"
         );
@@ -491,7 +546,7 @@ mod tests {
             session,
             download_dir: dir.path().to_owned(),
             next_id: AtomicU64::new(1),
-            handles: Mutex::new(HashMap::new()),
+            inner: Mutex::new(EngineInner { handles: HashMap::new(), deleting: HashSet::new() }),
         });
         let magnet1 =
             "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
@@ -502,20 +557,27 @@ mod tests {
         assert!(info2.id > info1.id, "second add must get a higher id than first (got {} then {})", info1.id, info2.id);
     }
 
-    // The state-mapping from librqbit to TorrentState is enforced at compile time by the
-    // exhaustive match in torrent_stats (no wildcard arm). This test instantiates every
-    // TorrentState variant to catch any future enum renames/removals at compile time.
+    // Exercises the production map_torrent_state function for every (state, finished) pair
+    // in the mapping table documented in types.rs.
     #[test]
-    fn state_mapping_all_variants_accessible() {
-        let variants = [
-            TorrentState::Paused,
-            TorrentState::Initializing,
-            TorrentState::Downloading,
-            TorrentState::Seeding,
-            TorrentState::Error,
+    fn state_mapping_correctness() {
+        let cases: &[(TorrentStatsState, bool, TorrentState)] = &[
+            (TorrentStatsState::Initializing, false, TorrentState::Initializing),
+            (TorrentStatsState::Initializing, true, TorrentState::Initializing),
+            (TorrentStatsState::Paused, false, TorrentState::Paused),
+            (TorrentStatsState::Paused, true, TorrentState::Paused),
+            (TorrentStatsState::Live, false, TorrentState::Downloading),
+            (TorrentStatsState::Live, true, TorrentState::Seeding),
+            (TorrentStatsState::Error, false, TorrentState::Error),
+            (TorrentStatsState::Error, true, TorrentState::Error),
         ];
-        // Five variants match the five rows in the types.rs mapping table.
-        assert_eq!(variants.len(), 5);
+        for (state, finished, expected) in cases {
+            assert_eq!(
+                map_torrent_state(*state, *finished),
+                *expected,
+                "state={state:?} finished={finished}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -562,17 +624,17 @@ mod tests {
             session,
             download_dir: dir.path().to_owned(),
             next_id: AtomicU64::new(1),
-            handles: Mutex::new(HashMap::new()),
+            inner: Mutex::new(EngineInner { handles: HashMap::new(), deleting: HashSet::new() }),
         });
 
         let magnet =
             "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
         let info = engine.add_magnet(magnet.to_string()).await.expect("add_magnet");
-        assert_eq!(engine.handles.lock().unwrap().len(), 1);
+        assert_eq!(engine.inner.lock().unwrap().handles.len(), 1);
 
         engine.remove(info.id, false).await.expect("remove");
         assert_eq!(
-            engine.handles.lock().unwrap().len(),
+            engine.inner.lock().unwrap().handles.len(),
             0,
             "handle must be removed from the map after remove()"
         );
@@ -603,7 +665,7 @@ mod tests {
             session,
             download_dir: dir.path().to_owned(),
             next_id: AtomicU64::new(1),
-            handles: Mutex::new(HashMap::new()),
+            inner: Mutex::new(EngineInner { handles: HashMap::new(), deleting: HashSet::new() }),
         });
 
         // Big Buck Bunny — a well-known multi-file torrent used for live tests.
