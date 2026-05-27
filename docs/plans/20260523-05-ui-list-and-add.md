@@ -23,9 +23,9 @@ First SwiftUI plan: build the main window. A list of torrents fed by an `@Observ
 
 ### Task 3: Add-magnet sheet
 
-- [ ] Create `Views/AddMagnetSheet.swift` with a `TextField`, an `Add` button, and a `Cancel` button.
-- [ ] On `Add`, call `await store.addMagnet(text)` and dismiss; surface errors via a simple alert.
-- [ ] Reject empty input client-side before calling the engine.
+- [x] Create `Views/AddMagnetSheet.swift` with a `TextField`, an `Add` button, and a `Cancel` button.
+- [x] On `Add`, call `await store.addMagnet(text)` and dismiss; surface errors via a simple alert.
+- [x] Reject empty input client-side before calling the engine.
 
 ### Task 4: Wire into the app entry point
 

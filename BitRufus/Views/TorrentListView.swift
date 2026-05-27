@@ -18,8 +18,8 @@ struct TorrentListView: View {
             }
         }
         .sheet(isPresented: $showAddSheet) {
-            // Replaced by AddMagnetSheet in Task 3
-            Text("Add magnet")
+            AddMagnetSheet()
+                .environmentObject(store)
         }
     }
 }
