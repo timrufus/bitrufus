@@ -183,7 +183,7 @@ impl Engine {
 
         // Remove files that are no longer selected so they don't linger on disk as
         // pre-allocated stubs created during librqbit's initialization phase.
-        self.delete_non_selected_files(&handle, &only_files);
+        self.delete_non_selected_files(&handle, &only_files).await;
 
         // Unpause unconditionally; if a concurrent set_file_selection call already
         // unpaused the torrent the "already live" error is benign — selection was applied.
@@ -351,7 +351,7 @@ impl Engine {
     // progress: a file with any bytes already downloaded is never deleted.
     // Mirrors librqbit's subfolder layout (get_default_subfolder_for_torrent).
     // Errors are never propagated — cleanup is best-effort.
-    fn delete_non_selected_files(&self, handle: &TorrentHandle, selected: &HashSet<usize>) {
+    async fn delete_non_selected_files(&self, handle: &TorrentHandle, selected: &HashSet<usize>) {
         // file_progress[i] is the number of bytes verified for file i; 0 means the
         // file contains only pre-allocated space, not real torrent data.
         let file_progress = handle.stats().file_progress;
@@ -420,18 +420,22 @@ impl Engine {
             Ok(v) => v,
             Err(_) => return,
         };
-        for (path, expected_len) in paths {
-            // Only remove the file if its on-disk size matches the torrent-declared
-            // length. A size mismatch means the file was not pre-allocated by librqbit
-            // and is likely a pre-existing user file that must not be deleted.
-            // Skip zero-length files: a declared size of 0 would match any empty file
-            // that happens to share the path, causing unintended deletion.
-            if expected_len > 0
-                && std::fs::metadata(&path).map(|m| m.len()).ok() == Some(expected_len)
-            {
-                let _ = std::fs::remove_file(&path);
+        tokio::task::spawn_blocking(move || {
+            for (path, expected_len) in paths {
+                // Only remove the file if its on-disk size matches the torrent-declared
+                // length. A size mismatch means the file was not pre-allocated by librqbit
+                // and is likely a pre-existing user file that must not be deleted.
+                // Skip zero-length files: a declared size of 0 would match any empty file
+                // that happens to share the path, causing unintended deletion.
+                if expected_len > 0
+                    && std::fs::metadata(&path).map(|m| m.len()).ok() == Some(expected_len)
+                {
+                    let _ = std::fs::remove_file(&path);
+                }
             }
-        }
+        })
+        .await
+        .ok();
     }
 }
 

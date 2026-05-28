@@ -76,9 +76,9 @@ final class AppStore: ObservableObject {
         Task { await pollMetadata(for: vm.id, engine: engine) }
     }
 
-    func cancelTorrent(_ id: UInt64) async {
-        guard let engine else { return }
-        try? await engine.remove(id: id, deleteFiles: true)
+    func cancelTorrent(_ id: UInt64) async throws {
+        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
+        try await engine.remove(id: id, deleteFiles: true)
     }
 
     func setFileSelection(id: UInt64, selectedIndexes: [UInt32]) async throws {
@@ -95,9 +95,9 @@ final class AppStore: ObservableObject {
     // immediately after addMagnet always returns empty.
     func waitForTorrentFiles(id: UInt64) async -> [FileInfo] {
         for _ in 0..<60 {
-            try? await Task.sleep(nanoseconds: 500_000_000)
             let files = (try? engine?.torrentFiles(id: id)) ?? []
             if !files.isEmpty { return files }
+            try? await Task.sleep(nanoseconds: 500_000_000)
         }
         return []
     }

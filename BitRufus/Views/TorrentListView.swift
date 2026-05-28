@@ -6,6 +6,7 @@ struct TorrentListView: View {
     @State private var pendingVM: TorrentVM?
     @State private var pendingFiles: [FileInfo] = []
     @State private var showFileSelection = false
+    @State private var actionError: String?
 
     var body: some View {
         List(store.torrents) { vm in
@@ -18,14 +19,26 @@ struct TorrentListView: View {
                 } label: {
                     Label("Add Torrent", systemImage: "plus")
                 }
-                .disabled(!store.isEngineReady)
+                .disabled(!store.isEngineReady || pendingVM != nil)
             }
         }
         .sheet(isPresented: $showAddSheet, onDismiss: {
             if let vm = pendingVM {
                 Task {
+                    pendingFiles = []
                     pendingFiles = await store.waitForTorrentFiles(id: vm.id)
-                    showFileSelection = true
+                    if pendingFiles.isEmpty {
+                        pendingVM = nil
+                        do {
+                            try await store.cancelTorrent(vm.id)
+                            actionError = "Could not fetch torrent metadata. The magnet link may be invalid or unreachable."
+                        } catch {
+                            store.confirmTorrent(vm)
+                            actionError = engineErrorMessage(error)
+                        }
+                    } else {
+                        showFileSelection = true
+                    }
                 }
             }
         }) {
@@ -36,7 +49,14 @@ struct TorrentListView: View {
         .sheet(isPresented: $showFileSelection, onDismiss: {
             if let vm = pendingVM {
                 pendingVM = nil
-                Task { await store.cancelTorrent(vm.id) }
+                Task {
+                    do {
+                        try await store.cancelTorrent(vm.id)
+                    } catch {
+                        store.confirmTorrent(vm)
+                        actionError = engineErrorMessage(error)
+                    }
+                }
             }
         }) {
             if let vm = pendingVM {
@@ -45,22 +65,35 @@ struct TorrentListView: View {
                     files: pendingFiles,
                     onConfirm: { selectedIndexes in
                         let id = vm.id
-                        showFileSelection = false
                         pendingVM = nil
+                        showFileSelection = false
                         Task {
                             do {
                                 try await store.setFileSelection(id: id, selectedIndexes: selectedIndexes)
                                 store.confirmTorrent(vm)
-                            } catch {
-                                await store.cancelTorrent(id)
+                            } catch let selectionError {
+                                do {
+                                    try await store.cancelTorrent(id)
+                                } catch {
+                                    store.confirmTorrent(vm)
+                                    actionError = "Failed to apply file selection. Torrent added to your list."
+                                    return
+                                }
+                                actionError = engineErrorMessage(selectionError)
                             }
                         }
                     },
                     onCancel: {
-                        let id = vm.id
                         pendingVM = nil
                         showFileSelection = false
-                        Task { await store.cancelTorrent(id) }
+                        Task {
+                            do {
+                                try await store.cancelTorrent(vm.id)
+                            } catch {
+                                store.confirmTorrent(vm)
+                                actionError = engineErrorMessage(error)
+                            }
+                        }
                     }
                 )
             }
@@ -72,6 +105,14 @@ struct TorrentListView: View {
             Button("OK", role: .cancel) { store.clearEngineError() }
         } message: {
             Text(store.engineStartError ?? "")
+        }
+        .alert("Error", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
         }
         .frame(minWidth: 500, minHeight: 300)
     }

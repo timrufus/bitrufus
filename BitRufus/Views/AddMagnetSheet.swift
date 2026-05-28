@@ -8,6 +8,7 @@ struct AddMagnetSheet: View {
     @State private var magnetText = ""
     @State private var errorMessage: String?
     @State private var isAdding = false
+    @State private var addTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 16) {
@@ -21,15 +22,15 @@ struct AddMagnetSheet: View {
 
             HStack {
                 Button("Cancel") {
+                    addTask?.cancel()
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
-                .disabled(isAdding)
 
                 Spacer()
 
                 Button("Add") {
-                    Task { await addMagnet() }
+                    addTask = Task { await addMagnet() }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(magnetText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isAdding)
@@ -55,11 +56,21 @@ struct AddMagnetSheet: View {
 
         do {
             if let vm = try await store.addMagnet(uri) {
+                if Task.isCancelled {
+                    try? await store.cancelTorrent(vm.id)
+                    return
+                }
                 onAdded(vm)
+                dismiss()
+            } else {
+                if !Task.isCancelled {
+                    errorMessage = "Torrent is already in the list."
+                }
             }
-            dismiss()
         } catch {
-            errorMessage = engineErrorMessage(error)
+            if !Task.isCancelled {
+                errorMessage = engineErrorMessage(error)
+            }
         }
     }
 }
