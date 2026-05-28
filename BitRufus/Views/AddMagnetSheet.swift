@@ -23,6 +23,7 @@ struct AddMagnetSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .disabled(isAdding)
 
                 Spacer()
 
@@ -55,7 +56,7 @@ struct AddMagnetSheet: View {
             try await store.addMagnet(uri)
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = engineErrorMessage(error)
         }
     }
 }

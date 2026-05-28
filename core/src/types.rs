@@ -9,7 +9,6 @@ pub struct FileInfo {
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct TorrentInfo {
     pub id: u64,
-    pub info_hash: String,
     pub name: String,
     pub total_bytes: u64,
 }

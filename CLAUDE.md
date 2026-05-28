@@ -35,6 +35,16 @@ Object types (classes in Swift): derive `uniffi::Object` on the struct, put meth
 
 The Engine stores torrent state as JSON in `~/Library/Application Support/BitRufus/BitRufus/` (resolved via the `directories` crate at runtime). Deleting this directory resets all persisted torrent state. This is the first place to look when debugging "torrent reappears after restart" or "session not loading" issues.
 
+Downloaded torrent files land in `~/Downloads/TorrentApp/` — this path is set by `AppStore.startEngine()` in `BitRufus/ViewModels/AppStore.swift` and passed to `Engine(downloadDir:)`. It is distinct from the JSON session persistence path above.
+
+Engine IDs are stable across restarts: `Engine::new` maps each restored librqbit session ID `sid` to engine ID `sid + 1`. The same torrent always gets the same engine ID across restarts, even after other torrents have been removed. This is the first place to look when debugging "torrent ID changed after restart" issues.
+
+## Concurrency Patterns
+
+**Concurrent add/remove safety (`deleting` tombstone set):** `EngineInner` carries a `deleting: HashSet<usize>` alongside `handles`. When `remove()` is called, the librqbit session ID is inserted into `deleting` and the handle is removed from `handles` — both atomically under the same lock — before `session.delete()` is awaited. Any new Engine method that calls `session.add_torrent` and may receive an `AlreadyManaged` response must check `inner.deleting` before inserting into `handles`; otherwise a concurrent remove will leave a zombie handle after the delete completes. See `add_magnet` in `core/src/engine.rs` for the reference implementation.
+
+**Async engine initialization in AppStore:** `Engine(downloadDir:)` is an async constructor. `AppStore.init()` fires a detached `Task { await startEngine() }` and exposes `@Published var isEngineReady: Bool` (set to `true` after the engine is ready). UI elements that require a live engine gate on `isEngineReady` (e.g., the `+` toolbar button in `TorrentListView`). Do not call engine methods synchronously from `AppStore.init()`.
+
 ## Rust Toolchain
 
 Pinned to `1.95.0` via `rust-toolchain.toml`. Do not change without verifying UniFFI 0.29 compatibility. `rustup` must be installed; the build script adds `~/.cargo/bin` to PATH (Xcode strips the shell PATH).
@@ -63,7 +73,7 @@ xcodebuild -project BitRufus.xcodeproj -scheme BitRufus -configuration Debug bui
 ## Project Layout
 
 - `core/` — Rust library crate (`bitrufus_core`)
-- `BitRufus/` — SwiftUI app source (`BitRufusApp.swift` entry point, `ContentView.swift`)
+- `BitRufus/` — SwiftUI app source (`BitRufusApp.swift` entry point, `ContentView.swift`, `ViewModels/`, `Views/`)
 - `apps/TorrentApp/Generated/` — generated Swift bindings (gitignored)
 - `scripts/build-rust.sh` — Xcode build phase script
 - `BitRufusTests/` — XCTest unit tests

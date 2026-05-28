@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use directories::ProjectDirs;
@@ -20,13 +19,13 @@ struct EngineInner {
     // AlreadyManaged for the same torrent can detect the in-flight deletion and bail out
     // rather than inserting a fresh engine ID that will immediately become a zombie.
     deleting: HashSet<usize>,
+    next_id: u64,
 }
 
 #[derive(uniffi::Object)]
 pub struct Engine {
     session: Arc<Session>,
     download_dir: PathBuf,
-    next_id: AtomicU64,
     inner: Mutex<EngineInner>,
 }
 
@@ -75,8 +74,11 @@ impl Engine {
         Ok(Arc::new(Self {
             session,
             download_dir,
-            next_id: AtomicU64::new(next_counter),
-            inner: Mutex::new(EngineInner { handles: map, deleting: HashSet::new() }),
+            inner: Mutex::new(EngineInner {
+                handles: map,
+                deleting: HashSet::new(),
+                next_id: next_counter,
+            }),
         }))
     }
 
@@ -85,12 +87,12 @@ impl Engine {
             reason: e.to_string(),
         })?;
 
-        let info_hash_str = parsed
-            .as_id20()
-            .ok_or_else(|| EngineError::InvalidMagnet {
+        // Reject BTv2-only magnet links before they reach the session.
+        if parsed.as_id20().is_none() {
+            return Err(EngineError::InvalidMagnet {
                 reason: "magnet link missing BTv1 infohash".to_string(),
-            })?
-            .as_string();
+            });
+        }
 
         // Capture the display name from dn= before the add consumes parsed.
         let dn = parsed.name.clone();
@@ -137,7 +139,8 @@ impl Engine {
             let id = if let Some(id) = existing {
                 id
             } else {
-                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                let id = inner.next_id;
+                inner.next_id += 1;
                 inner.handles.insert(id, h.clone());
                 id
             };
@@ -151,7 +154,6 @@ impl Engine {
 
         Ok(TorrentInfo {
             id,
-            info_hash: info_hash_str,
             name,
             total_bytes: stats.total_bytes,
         })
@@ -185,14 +187,7 @@ impl Engine {
 
         // Unpause unconditionally; if a concurrent set_file_selection call already
         // unpaused the torrent the "already live" error is benign — selection was applied.
-        // librqbit bails with "torrent is already live" (torrent_state/mod.rs:322 in 8.1.1).
-        match self.session.unpause(&handle).await {
-            Ok(()) => {}
-            Err(e) if e.to_string().contains("already live") => {}
-            Err(e) => return Err(EngineError::Backend { reason: e.to_string() }),
-        }
-
-        Ok(())
+        self.unpause_idempotent(&handle).await
     }
 
     pub fn torrent_stats(&self, id: u64) -> Result<TorrentStats, EngineError> {
@@ -247,13 +242,7 @@ impl Engine {
             let inner = self.inner.lock().expect("inner lock poisoned");
             inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
         };
-        match self.session.unpause(&handle).await {
-            Ok(()) => Ok(()),
-            // librqbit bails with "torrent is already live" when unpause is called on a
-            // running torrent (torrent_state/mod.rs:322 in librqbit 8.1.1). Treat as Ok.
-            Err(e) if e.to_string().contains("already live") => Ok(()),
-            Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
-        }
+        self.unpause_idempotent(&handle).await
     }
 
     pub async fn remove(&self, id: u64, delete_files: bool) -> Result<(), EngineError> {
@@ -297,7 +286,6 @@ impl Engine {
                 let stats = handle.stats();
                 TorrentInfo {
                     id,
-                    info_hash: handle.info_hash().as_string(),
                     name: handle.name().unwrap_or_default(),
                     total_bytes: stats.total_bytes,
                 }
@@ -347,6 +335,17 @@ fn map_torrent_state(state: TorrentStatsState, finished: bool) -> TorrentState {
 }
 
 impl Engine {
+    // Calls session.unpause and swallows the "already live" error that librqbit returns
+    // when unpause is called on a torrent that is already running
+    // (torrent_state/mod.rs:322 in librqbit 8.1.1). All other errors are propagated.
+    async fn unpause_idempotent(&self, handle: &TorrentHandle) -> Result<(), EngineError> {
+        match self.session.unpause(handle).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.to_string().contains("already live") => Ok(()),
+            Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
+        }
+    }
+
     // Deletes pre-allocated stub files for non-selected files after the initial file
     // selection. Guards against destroying real data by checking per-file download
     // progress: a file with any bytes already downloaded is never deleted.
@@ -358,7 +357,11 @@ impl Engine {
         let file_progress = handle.stats().file_progress;
 
         let torrent_name = handle.name();
-        let paths: Vec<PathBuf> = match handle.with_metadata(|meta| {
+        // Collect (path, expected_size) pairs so we can verify on-disk size before
+        // deleting. This guards against removing pre-existing files that happen to
+        // share a name with an unselected torrent file: a file whose size differs from
+        // the torrent-declared length is not a stub we created.
+        let paths: Vec<(PathBuf, u64)> = match handle.with_metadata(|meta| {
             let file_count = meta.file_infos.len();
             // Replicate librqbit's get_default_subfolder_for_torrent logic:
             // multi-file torrents are placed in a named subdirectory.
@@ -409,7 +412,7 @@ impl Engine {
                     if safe_rel.as_os_str().is_empty() {
                         None
                     } else {
-                        Some(base.join(safe_rel))
+                        Some((base.join(safe_rel), fi.len))
                     }
                 })
                 .collect::<Vec<_>>()
@@ -417,8 +420,17 @@ impl Engine {
             Ok(v) => v,
             Err(_) => return,
         };
-        for path in paths {
-            let _ = std::fs::remove_file(&path);
+        for (path, expected_len) in paths {
+            // Only remove the file if its on-disk size matches the torrent-declared
+            // length. A size mismatch means the file was not pre-allocated by librqbit
+            // and is likely a pre-existing user file that must not be deleted.
+            // Skip zero-length files: a declared size of 0 would match any empty file
+            // that happens to share the path, causing unintended deletion.
+            if expected_len > 0
+                && std::fs::metadata(&path).map(|m| m.len()).ok() == Some(expected_len)
+            {
+                let _ = std::fs::remove_file(&path);
+            }
         }
     }
 }
@@ -447,8 +459,11 @@ mod tests {
         Arc::new(Engine {
             session,
             download_dir: dir.to_owned(),
-            next_id: AtomicU64::new(1),
-            inner: Mutex::new(EngineInner { handles: HashMap::new(), deleting: HashSet::new() }),
+            inner: Mutex::new(EngineInner {
+                handles: HashMap::new(),
+                deleting: HashSet::new(),
+                next_id: 1,
+            }),
         })
     }
 
@@ -517,8 +532,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_file_selection_not_found_with_duplicate_indexes() {
-        // Non-empty duplicate input passes the empty guard and reaches the id lookup.
+    async fn set_file_selection_non_empty_duplicate_not_treated_as_empty() {
+        // Duplicate indexes must not cause the empty guard to fire; the id lookup must run.
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
         let err = engine.set_file_selection(77, vec![0, 0, 0]).await.unwrap_err();
@@ -545,8 +560,11 @@ mod tests {
         let engine = Arc::new(Engine {
             session,
             download_dir: dir.path().to_owned(),
-            next_id: AtomicU64::new(1),
-            inner: Mutex::new(EngineInner { handles: HashMap::new(), deleting: HashSet::new() }),
+            inner: Mutex::new(EngineInner {
+                handles: HashMap::new(),
+                deleting: HashSet::new(),
+                next_id: 1,
+            }),
         });
         let magnet1 =
             "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
@@ -623,8 +641,11 @@ mod tests {
         let engine = Arc::new(Engine {
             session,
             download_dir: dir.path().to_owned(),
-            next_id: AtomicU64::new(1),
-            inner: Mutex::new(EngineInner { handles: HashMap::new(), deleting: HashSet::new() }),
+            inner: Mutex::new(EngineInner {
+                handles: HashMap::new(),
+                deleting: HashSet::new(),
+                next_id: 1,
+            }),
         });
 
         let magnet =
@@ -664,8 +685,11 @@ mod tests {
         let engine = Arc::new(Engine {
             session,
             download_dir: dir.path().to_owned(),
-            next_id: AtomicU64::new(1),
-            inner: Mutex::new(EngineInner { handles: HashMap::new(), deleting: HashSet::new() }),
+            inner: Mutex::new(EngineInner {
+                handles: HashMap::new(),
+                deleting: HashSet::new(),
+                next_id: 1,
+            }),
         });
 
         // Big Buck Bunny — a well-known multi-file torrent used for live tests.

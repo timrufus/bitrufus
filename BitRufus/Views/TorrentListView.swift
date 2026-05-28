@@ -15,12 +15,21 @@ struct TorrentListView: View {
                 } label: {
                     Label("Add Torrent", systemImage: "plus")
                 }
+                .disabled(!store.isEngineReady)
             }
         }
         .sheet(isPresented: $showAddSheet) {
             AddMagnetSheet()
-                .environmentObject(store)
         }
+        .alert("Engine Error", isPresented: Binding(
+            get: { store.engineStartError != nil },
+            set: { if !$0 { store.clearEngineError() } }
+        )) {
+            Button("OK", role: .cancel) { store.clearEngineError() }
+        } message: {
+            Text(store.engineStartError ?? "")
+        }
+        .frame(minWidth: 500, minHeight: 300)
     }
 }
 
@@ -35,14 +44,17 @@ struct TorrentRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(vm.info.name)
+            Text(vm.info.name.isEmpty ? "(Unknown)" : vm.info.name)
                 .lineLimit(1)
             HStack {
-                Text(Self.byteFormatter.string(fromByteCount: Int64(vm.info.totalBytes)))
+                Text(vm.info.totalBytes > 0
+                    ? Self.byteFormatter.string(fromByteCount: Int64(clamping: vm.info.totalBytes))
+                    : "Fetching…")
                     .foregroundStyle(.secondary)
                     .font(.caption)
                 Spacer()
-                ProgressView(value: 0)
+                // Progress wired in a later plan; 0% placeholder until stats are available.
+                ProgressView(value: 0.0, total: 1.0)
                     .frame(width: 120)
             }
         }

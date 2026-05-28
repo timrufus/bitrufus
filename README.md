@@ -11,12 +11,16 @@ A macOS torrent client with a Rust core and SwiftUI frontend, bridged via UniFFI
 ## Project Structure
 
 ```
-core/                       # Rust library (bitrufus_core)
-BitRufus/                   # SwiftUI app source (ContentView, app entry)
-apps/TorrentApp/Generated/  # Auto-generated UniFFI Swift bindings (gitignored, rebuilt on each Xcode build)
-scripts/build-rust.sh       # Build phase script: compiles Rust, stages .a, regenerates Swift bindings
-BitRufusTests/              # XCTest unit tests
-BitRufusUITests/            # XCTest UI tests
+core/                         # Rust library (bitrufus_core)
+BitRufus/                     # SwiftUI app source
+  BitRufusApp.swift           #   App entry point
+  ContentView.swift           #   Root view
+  ViewModels/                 #   Observable stores (AppStore, TorrentVM)
+  Views/                      #   SwiftUI views (TorrentListView, AddMagnetSheet)
+apps/TorrentApp/Generated/    # Auto-generated UniFFI Swift bindings (gitignored, rebuilt on each Xcode build)
+scripts/build-rust.sh         # Build phase script: compiles Rust, stages .a, regenerates Swift bindings
+BitRufusTests/                # XCTest unit tests
+BitRufusUITests/              # XCTest UI tests
 ```
 
 ## Building
@@ -35,4 +39,4 @@ cargo clippy --all-targets -- -D warnings
 
 ## Verifying the Setup
 
-After a successful build, the app window should show a "Rust: pong" label at the bottom, confirming the Rust→Swift FFI roundtrip works.
+After a successful build and launch, the app shows an empty torrent list. Click `+` in the toolbar, paste a magnet link, and click Add — a row with the torrent's name and size should appear, confirming the Rust→Swift FFI roundtrip works.

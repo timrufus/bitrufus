@@ -6,7 +6,7 @@ First SwiftUI plan: build the main window. A list of torrents fed by an `@Observ
 
 ## Validation Commands
 
-- `xcodebuild -project apps/TorrentApp.xcodeproj -scheme TorrentApp -configuration Debug build`
+- `xcodebuild -project BitRufus.xcodeproj -scheme BitRufus -configuration Debug build`
 - Manual: ⌘R, click `+`, paste a known magnet, click `Add` — confirm a row appears in the list with the torrent's name and total size. Add a second magnet; both rows visible.
 
 ### Task 1: Build the observable store
@@ -29,6 +29,6 @@ First SwiftUI plan: build the main window. A list of torrents fed by an `@Observ
 
 ### Task 4: Wire into the app entry point
 
-- [x] In `TorrentAppApp.swift`, instantiate `AppStore` as `@State` at the top of the scene and inject into the environment.
+- [x] In `BitRufusApp.swift`, instantiate `AppStore` as `@StateObject` at the top of the scene and inject into the environment.
 - [x] Replace `ContentView`'s body with `TorrentListView`.
 - [x] Run the validation commands and confirm the manual flow. [xcodebuild succeeded; manual ⌘R test is a deployment-time verification]

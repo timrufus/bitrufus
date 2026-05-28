@@ -2,6 +2,7 @@ import Foundation
 
 // TorrentVM holds the latest info and optional stats for one torrent.
 // Stats are populated by a later plan; nil here is expected.
+@MainActor
 final class TorrentVM: ObservableObject, Identifiable {
     let id: UInt64
     @Published private(set) var info: TorrentInfo
@@ -11,6 +12,14 @@ final class TorrentVM: ObservableObject, Identifiable {
         self.id = info.id
         self.info = info
     }
+
+    // Called by AppStore once metadata resolves (total_bytes and name become available).
+    // Preserves the existing name (e.g. dn= display name) if the updated info has an empty name.
+    func refreshInfo(_ updated: TorrentInfo) {
+        guard updated.totalBytes > 0 else { return }
+        let name = updated.name.isEmpty ? info.name : updated.name
+        info = TorrentInfo(id: updated.id, name: name, totalBytes: updated.totalBytes)
+    }
 }
 
 // AppStore owns the singleton Engine and the observable list of torrents.
@@ -18,6 +27,8 @@ final class TorrentVM: ObservableObject, Identifiable {
 @MainActor
 final class AppStore: ObservableObject {
     @Published private(set) var torrents: [TorrentVM] = []
+    @Published private(set) var engineStartError: String?
+    @Published private(set) var isEngineReady: Bool = false
 
     private var engine: Engine?
 
@@ -28,23 +39,71 @@ final class AppStore: ObservableObject {
     }
 
     private func startEngine() async {
-        let downloads = FileManager.default
+        let downloads = (FileManager.default
             .urls(for: .downloadsDirectory, in: .userDomainMask)
-            .first!
+            .first ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("TorrentApp")
             .path
         do {
             let e = try await Engine(downloadDir: downloads)
             engine = e
             torrents = e.listTorrents().map { TorrentVM(info: $0) }
+            // Restored torrents whose metadata hasn't resolved yet (no size) need the same
+            // background polling that addMagnet kicks off for freshly-added magnets.
+            for vm in torrents where vm.info.totalBytes == 0 {
+                Task { await self.pollMetadata(for: vm.id, engine: e) }
+            }
+            isEngineReady = true
         } catch {
-            // Engine failed to start; torrents stays empty.
+            engineStartError = engineErrorMessage(error)
         }
     }
 
     func addMagnet(_ uri: String) async throws {
-        guard let engine else { return }
+        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
         let info = try await engine.addMagnet(magnet: uri)
-        torrents.append(TorrentVM(info: info))
+        // Engine deduplicates magnets; guard against appending a VM for an id already tracked.
+        if !torrents.contains(where: { $0.id == info.id }) {
+            let vm = TorrentVM(info: info)
+            torrents.append(vm)
+            // For paused magnet-only adds, total_bytes is 0 until the torrent fetches
+            // metadata from peers. Poll in the background until it resolves.
+            if info.totalBytes == 0 {
+                Task { await self.pollMetadata(for: info.id, engine: engine) }
+            }
+        }
     }
+
+    // Polls until total_bytes > 0 (metadata resolved) or the window expires.
+    // Phase 1: 0.5 s × 60 = 30 s (typical case). Phase 2: 5 s × 60 = 5 min (slow DHT).
+    private func pollMetadata(for id: UInt64, engine: Engine) async {
+        let phases: [(count: Int, nanos: UInt64)] = [(60, 500_000_000), (60, 5_000_000_000)]
+        for (count, nanos) in phases {
+            for _ in 0..<count {
+                do {
+                    try await Task.sleep(nanoseconds: nanos)
+                } catch {
+                    return
+                }
+                guard let vm = torrents.first(where: { $0.id == id }) else { return }
+                if let info = engine.listTorrents().first(where: { $0.id == id }),
+                   info.totalBytes > 0 {
+                    vm.refreshInfo(info)
+                    return
+                }
+            }
+        }
+    }
+
+    func clearEngineError() {
+        engineStartError = nil
+    }
+}
+
+func engineErrorMessage(_ error: Error) -> String {
+    if case EngineError.Backend(let reason) = error { return reason }
+    if case EngineError.InvalidMagnet(let reason) = error { return reason }
+    if case EngineError.Io(let reason) = error { return reason }
+    if case EngineError.NotFound(let id) = error { return "torrent not found: \(id)" }
+    return error.localizedDescription
 }

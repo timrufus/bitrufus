@@ -13,19 +13,16 @@ final class BitRufusUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testRustPingLabelVisible() throws {
+    func testAddTorrentButtonVisible() throws {
         let app = XCUIApplication()
         app.launch()
-        let label = app.staticTexts["rust-ping-label"]
-        XCTAssertTrue(label.waitForExistence(timeout: 5), "Expected rust-ping-label from FFI roundtrip")
-        XCTAssertEqual(label.label, "Rust: pong", "rust-ping-label must show FFI response")
+        let button = app.buttons["Add Torrent"]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "Expected Add Torrent toolbar button in TorrentListView")
     }
 
     func testLaunchPerformance() throws {
-        if #available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 7.0, *) {
-            measure(metrics: [XCTApplicationLaunchMetric()]) {
-                XCUIApplication().launch()
-            }
+        measure(metrics: [XCTApplicationLaunchMetric()]) {
+            XCUIApplication().launch()
         }
     }
 }

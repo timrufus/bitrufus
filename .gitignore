@@ -1,6 +1,7 @@
 # Rust build output
 target/
 build/
+rust_out
 
 # macOS
 .DS_Store
