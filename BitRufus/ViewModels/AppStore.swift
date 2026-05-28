@@ -90,6 +90,18 @@ final class AppStore: ObservableObject {
         return (try? engine?.torrentFiles(id: id)) ?? []
     }
 
+    // Polls until torrent_files returns a non-empty list (metadata resolved) or 30 s timeout.
+    // Magnet-only adds have no file metadata until DHT/trackers respond; calling torrentFiles
+    // immediately after addMagnet always returns empty.
+    func waitForTorrentFiles(id: UInt64) async -> [FileInfo] {
+        for _ in 0..<60 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            let files = (try? engine?.torrentFiles(id: id)) ?? []
+            if !files.isEmpty { return files }
+        }
+        return []
+    }
+
     // Polls until total_bytes > 0 (metadata resolved) or the window expires.
     // Phase 1: 0.5 s × 60 = 30 s (typical case). Phase 2: 5 s × 60 = 5 min (slow DHT).
     private func pollMetadata(for id: UInt64, engine: Engine) async {

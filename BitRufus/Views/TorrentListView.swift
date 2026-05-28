@@ -23,8 +23,10 @@ struct TorrentListView: View {
         }
         .sheet(isPresented: $showAddSheet, onDismiss: {
             if let vm = pendingVM {
-                pendingFiles = store.torrentFiles(id: vm.id)
-                showFileSelection = true
+                Task {
+                    pendingFiles = await store.waitForTorrentFiles(id: vm.id)
+                    showFileSelection = true
+                }
             }
         }) {
             AddMagnetSheet { vm in
@@ -46,8 +48,12 @@ struct TorrentListView: View {
                         showFileSelection = false
                         pendingVM = nil
                         Task {
-                            try? await store.setFileSelection(id: id, selectedIndexes: selectedIndexes)
-                            store.confirmTorrent(vm)
+                            do {
+                                try await store.setFileSelection(id: id, selectedIndexes: selectedIndexes)
+                                store.confirmTorrent(vm)
+                            } catch {
+                                await store.cancelTorrent(id)
+                            }
                         }
                     },
                     onCancel: {

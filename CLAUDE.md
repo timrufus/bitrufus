@@ -45,6 +45,10 @@ Engine IDs are stable across restarts: `Engine::new` maps each restored librqbit
 
 **Async engine initialization in AppStore:** `Engine(downloadDir:)` is an async constructor. `AppStore.init()` fires a detached `Task { await startEngine() }` and exposes `@Published var isEngineReady: Bool` (set to `true` after the engine is ready). UI elements that require a live engine gate on `isEngineReady` (e.g., the `+` toolbar button in `TorrentListView`). Do not call engine methods synchronously from `AppStore.init()`.
 
+**Two-phase magnet add flow:** `AppStore.addMagnet(_:)` adds the torrent to the engine in a paused state and returns a `TorrentVM?` but does NOT append it to `torrents`. The caller (`TorrentListView`) must present `FileSelectionSheet` and then call either `confirmTorrent(_:)` (after `setFileSelection`) or `cancelTorrent(_:)` (calls `engine.remove(deleteFiles: true)` and discards the VM). A torrent that is neither confirmed nor cancelled remains live in the engine session until the next restart. `addMagnet` returns `nil` when the torrent ID is already present in `torrents` (duplicate magnet re-add after confirmation is a no-op).
+
+**`torrentFiles` before metadata resolves:** `engine.torrentFiles(id:)` calls `handle.with_metadata(...)` internally, which returns an error when torrent metadata has not yet been fetched from DHT/trackers. `AppStore.torrentFiles(id:)` silently converts this error to `[]`. Always use `AppStore.waitForTorrentFiles(id:)` when fetching files to show to the user — it polls up to 30 s for metadata to resolve before returning.
+
 ## Rust Toolchain
 
 Pinned to `1.95.0` via `rust-toolchain.toml`. Do not change without verifying UniFFI 0.29 compatibility. `rustup` must be installed; the build script adds `~/.cargo/bin` to PATH (Xcode strips the shell PATH).

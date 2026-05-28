@@ -16,7 +16,7 @@ BitRufus/                     # SwiftUI app source
   BitRufusApp.swift           #   App entry point
   ContentView.swift           #   Root view
   ViewModels/                 #   Observable stores (AppStore, TorrentVM)
-  Views/                      #   SwiftUI views (TorrentListView, AddMagnetSheet)
+  Views/                      #   SwiftUI views (TorrentListView, AddMagnetSheet, FileSelectionSheet)
 apps/TorrentApp/Generated/    # Auto-generated UniFFI Swift bindings (gitignored, rebuilt on each Xcode build)
 scripts/build-rust.sh         # Build phase script: compiles Rust, stages .a, regenerates Swift bindings
 BitRufusTests/                # XCTest unit tests
@@ -39,4 +39,4 @@ cargo clippy --all-targets -- -D warnings
 
 ## Verifying the Setup
 
-After a successful build and launch, the app shows an empty torrent list. Click `+` in the toolbar, paste a magnet link, and click Add — a row with the torrent's name and size should appear, confirming the Rust→Swift FFI roundtrip works.
+After a successful build and launch, the app shows an empty torrent list. Click `+` in the toolbar, paste a magnet link, and click Add. A file selection sheet will appear once the torrent's metadata resolves (typically a few seconds on a live network) — select the files you want and click Download. A row with the torrent's name and size should appear in the list, confirming the Rust→Swift FFI roundtrip works.
