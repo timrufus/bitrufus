@@ -51,7 +51,7 @@ impl Engine {
         let session = Session::new_with_opts(download_dir.clone(), opts)
             .await
             .map_err(|e| EngineError::Backend {
-                reason: e.to_string(),
+                reason: format!("{e:#}"),
             })?;
 
         // Restore previously-persisted torrents. Pin each engine ID to

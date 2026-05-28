@@ -1,11 +1,16 @@
 import SwiftUI
 
+struct FileSelectionItem: Identifiable {
+    let vm: TorrentVM
+    let files: [FileInfo]
+    var id: UInt64 { vm.id }
+}
+
 struct TorrentListView: View {
     @EnvironmentObject private var store: AppStore
     @State private var showAddSheet = false
     @State private var pendingVM: TorrentVM?
-    @State private var pendingFiles: [FileInfo] = []
-    @State private var showFileSelection = false
+    @State private var fileSelectionItem: FileSelectionItem?
     @State private var actionError: String?
 
     var body: some View {
@@ -25,9 +30,8 @@ struct TorrentListView: View {
         .sheet(isPresented: $showAddSheet, onDismiss: {
             if let vm = pendingVM {
                 Task {
-                    pendingFiles = []
-                    pendingFiles = await store.waitForTorrentFiles(id: vm.id)
-                    if pendingFiles.isEmpty {
+                    let files = await store.waitForTorrentFiles(id: vm.id)
+                    if files.isEmpty {
                         pendingVM = nil
                         do {
                             try await store.cancelTorrent(vm.id)
@@ -37,7 +41,7 @@ struct TorrentListView: View {
                             actionError = engineErrorMessage(error)
                         }
                     } else {
-                        showFileSelection = true
+                        fileSelectionItem = FileSelectionItem(vm: vm, files: files)
                     }
                 }
             }
@@ -46,7 +50,7 @@ struct TorrentListView: View {
                 pendingVM = vm
             }
         }
-        .sheet(isPresented: $showFileSelection, onDismiss: {
+        .sheet(item: $fileSelectionItem, onDismiss: {
             if let vm = pendingVM {
                 pendingVM = nil
                 Task {
@@ -58,45 +62,44 @@ struct TorrentListView: View {
                     }
                 }
             }
-        }) {
-            if let vm = pendingVM {
-                FileSelectionSheet(
-                    vm: vm,
-                    files: pendingFiles,
-                    onConfirm: { selectedIndexes in
-                        let id = vm.id
-                        pendingVM = nil
-                        showFileSelection = false
-                        Task {
-                            do {
-                                try await store.setFileSelection(id: id, selectedIndexes: selectedIndexes)
-                                store.confirmTorrent(vm)
-                            } catch let selectionError {
-                                do {
-                                    try await store.cancelTorrent(id)
-                                } catch {
-                                    store.confirmTorrent(vm)
-                                    actionError = "Failed to apply file selection. Torrent added to your list."
-                                    return
-                                }
-                                actionError = engineErrorMessage(selectionError)
-                            }
-                        }
-                    },
-                    onCancel: {
-                        pendingVM = nil
-                        showFileSelection = false
-                        Task {
+        }) { item in
+            FileSelectionSheet(
+                vm: item.vm,
+                files: item.files,
+                onConfirm: { selectedIndexes in
+                    let vm = item.vm
+                    fileSelectionItem = nil
+                    pendingVM = nil
+                    Task {
+                        do {
+                            try await store.setFileSelection(id: vm.id, selectedIndexes: selectedIndexes)
+                            store.confirmTorrent(vm)
+                        } catch let selectionError {
                             do {
                                 try await store.cancelTorrent(vm.id)
                             } catch {
                                 store.confirmTorrent(vm)
-                                actionError = engineErrorMessage(error)
+                                actionError = "Failed to apply file selection. Torrent added to your list."
+                                return
                             }
+                            actionError = engineErrorMessage(selectionError)
                         }
                     }
-                )
-            }
+                },
+                onCancel: {
+                    let vm = item.vm
+                    fileSelectionItem = nil
+                    pendingVM = nil
+                    Task {
+                        do {
+                            try await store.cancelTorrent(vm.id)
+                        } catch {
+                            store.confirmTorrent(vm)
+                            actionError = engineErrorMessage(error)
+                        }
+                    }
+                }
+            )
         }
         .alert("Engine Error", isPresented: Binding(
             get: { store.engineStartError != nil },
