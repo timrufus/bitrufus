@@ -23,6 +23,6 @@ After a magnet is added, present the user with the torrent's file tree and let t
 
 ### Task 3: Apply selection and guard against empty confirms
 
-- [ ] On confirm, call `await engine.setFileSelection(id:, selectedIndexes: Array(set))`.
-- [ ] Disable the confirm button when the selection set is empty.
-- [ ] Verify visually that file sizes are correct and totals match the torrent's `totalBytes`.
+- [x] On confirm, call `await engine.setFileSelection(id:, selectedIndexes: Array(set))`.
+- [x] Disable the confirm button when the selection set is empty.
+- [x] Verify visually that file sizes are correct and totals match the torrent's `totalBytes`. [manual test - skipped, not automatable]

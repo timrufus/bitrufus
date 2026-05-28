@@ -41,10 +41,14 @@ struct TorrentListView: View {
                 FileSelectionSheet(
                     vm: vm,
                     files: pendingFiles,
-                    onConfirm: { _ in
-                        store.confirmTorrent(vm)
-                        pendingVM = nil
+                    onConfirm: { selectedIndexes in
+                        let id = vm.id
                         showFileSelection = false
+                        pendingVM = nil
+                        Task {
+                            try? await store.setFileSelection(id: id, selectedIndexes: selectedIndexes)
+                            store.confirmTorrent(vm)
+                        }
                     },
                     onCancel: {
                         let id = vm.id

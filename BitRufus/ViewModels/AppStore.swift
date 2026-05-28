@@ -81,6 +81,11 @@ final class AppStore: ObservableObject {
         try? await engine.remove(id: id, deleteFiles: true)
     }
 
+    func setFileSelection(id: UInt64, selectedIndexes: [UInt32]) async throws {
+        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
+        try await engine.setFileSelection(id: id, selectedIndexes: selectedIndexes)
+    }
+
     func torrentFiles(id: UInt64) -> [FileInfo] {
         return (try? engine?.torrentFiles(id: id)) ?? []
     }
