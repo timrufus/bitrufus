@@ -59,19 +59,30 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func addMagnet(_ uri: String) async throws {
+    // Adds a magnet to the engine but does NOT append to `torrents`.
+    // Returns nil if the torrent is already confirmed (duplicate magnet).
+    // Caller must call confirmTorrent(_:) or cancelTorrent(_:) on the returned VM.
+    func addMagnet(_ uri: String) async throws -> TorrentVM? {
         guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
         let info = try await engine.addMagnet(magnet: uri)
-        // Engine deduplicates magnets; guard against appending a VM for an id already tracked.
-        if !torrents.contains(where: { $0.id == info.id }) {
-            let vm = TorrentVM(info: info)
-            torrents.append(vm)
-            // For paused magnet-only adds, total_bytes is 0 until the torrent fetches
-            // metadata from peers. Poll in the background until it resolves.
-            if info.totalBytes == 0 {
-                Task { await self.pollMetadata(for: info.id, engine: engine) }
-            }
-        }
+        if torrents.contains(where: { $0.id == info.id }) { return nil }
+        return TorrentVM(info: info)
+    }
+
+    func confirmTorrent(_ vm: TorrentVM) {
+        guard !torrents.contains(where: { $0.id == vm.id }) else { return }
+        torrents.append(vm)
+        guard let engine, vm.info.totalBytes == 0 else { return }
+        Task { await pollMetadata(for: vm.id, engine: engine) }
+    }
+
+    func cancelTorrent(_ id: UInt64) async {
+        guard let engine else { return }
+        try? await engine.remove(id: id, deleteFiles: true)
+    }
+
+    func torrentFiles(id: UInt64) -> [FileInfo] {
+        return (try? engine?.torrentFiles(id: id)) ?? []
     }
 
     // Polls until total_bytes > 0 (metadata resolved) or the window expires.

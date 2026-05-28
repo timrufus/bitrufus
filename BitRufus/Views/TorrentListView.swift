@@ -3,6 +3,9 @@ import SwiftUI
 struct TorrentListView: View {
     @EnvironmentObject private var store: AppStore
     @State private var showAddSheet = false
+    @State private var pendingVM: TorrentVM?
+    @State private var pendingFiles: [FileInfo] = []
+    @State private var showFileSelection = false
 
     var body: some View {
         List(store.torrents) { vm in
@@ -18,8 +21,39 @@ struct TorrentListView: View {
                 .disabled(!store.isEngineReady)
             }
         }
-        .sheet(isPresented: $showAddSheet) {
-            AddMagnetSheet()
+        .sheet(isPresented: $showAddSheet, onDismiss: {
+            if let vm = pendingVM {
+                pendingFiles = store.torrentFiles(id: vm.id)
+                showFileSelection = true
+            }
+        }) {
+            AddMagnetSheet { vm in
+                pendingVM = vm
+            }
+        }
+        .sheet(isPresented: $showFileSelection, onDismiss: {
+            if let vm = pendingVM {
+                pendingVM = nil
+                Task { await store.cancelTorrent(vm.id) }
+            }
+        }) {
+            if let vm = pendingVM {
+                FileSelectionSheet(
+                    vm: vm,
+                    files: pendingFiles,
+                    onConfirm: { _ in
+                        store.confirmTorrent(vm)
+                        pendingVM = nil
+                        showFileSelection = false
+                    },
+                    onCancel: {
+                        let id = vm.id
+                        pendingVM = nil
+                        showFileSelection = false
+                        Task { await store.cancelTorrent(id) }
+                    }
+                )
+            }
         }
         .alert("Engine Error", isPresented: Binding(
             get: { store.engineStartError != nil },

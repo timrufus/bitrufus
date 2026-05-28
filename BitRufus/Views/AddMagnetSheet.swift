@@ -3,6 +3,7 @@ import SwiftUI
 struct AddMagnetSheet: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    let onAdded: (TorrentVM) -> Void
 
     @State private var magnetText = ""
     @State private var errorMessage: String?
@@ -53,7 +54,9 @@ struct AddMagnetSheet: View {
         defer { isAdding = false }
 
         do {
-            try await store.addMagnet(uri)
+            if let vm = try await store.addMagnet(uri) {
+                onAdded(vm)
+            }
             dismiss()
         } catch {
             errorMessage = engineErrorMessage(error)

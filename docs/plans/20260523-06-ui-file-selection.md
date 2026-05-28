@@ -17,9 +17,9 @@ After a magnet is added, present the user with the torrent's file tree and let t
 
 ### Task 2: Hook into the add flow
 
-- [ ] After `addMagnet` resolves successfully in `AppStore`, transition the UI to present `FileSelectionSheet` for the new torrent (instead of immediately appending to the visible list).
-- [ ] Only append the `TorrentVM` to `store.torrents` after the user confirms.
-- [ ] On cancel, call `engine.remove(id: id, deleteFiles: true)` and discard the VM.
+- [x] After `addMagnet` resolves successfully in `AppStore`, transition the UI to present `FileSelectionSheet` for the new torrent (instead of immediately appending to the visible list).
+- [x] Only append the `TorrentVM` to `store.torrents` after the user confirms.
+- [x] On cancel, call `engine.remove(id: id, deleteFiles: true)` and discard the VM.
 
 ### Task 3: Apply selection and guard against empty confirms
 
