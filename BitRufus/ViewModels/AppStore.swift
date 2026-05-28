@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 // TorrentVM holds the latest info and optional stats for one torrent.
 // Stats are populated by a later plan; nil here is expected.
@@ -11,6 +12,10 @@ final class TorrentVM: ObservableObject, Identifiable {
     init(info: TorrentInfo) {
         self.id = info.id
         self.info = info
+    }
+
+    func updateStats(_ newStats: TorrentStats) {
+        stats = newStats
     }
 
     // Called by AppStore once metadata resolves (total_bytes and name become available).
@@ -31,11 +36,21 @@ final class AppStore: ObservableObject {
     @Published private(set) var isEngineReady: Bool = false
 
     private var engine: Engine?
+    private var statsPollingTask: Task<Void, Never>?
 
     init() {
         Task {
             await startEngine()
         }
+        statsPollingTask = Task { [weak self] in
+            for await _ in Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().values {
+                self?.refreshStats()
+            }
+        }
+    }
+
+    deinit {
+        statsPollingTask?.cancel()
     }
 
     private func startEngine() async {
@@ -119,6 +134,15 @@ final class AppStore: ObservableObject {
                     vm.refreshInfo(info)
                     return
                 }
+            }
+        }
+    }
+
+    private func refreshStats() {
+        guard let engine else { return }
+        for vm in torrents {
+            if let s = try? engine.torrentStats(id: vm.id) {
+                vm.updateStats(s)
             }
         }
     }

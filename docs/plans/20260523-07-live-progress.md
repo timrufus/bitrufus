@@ -11,9 +11,9 @@ Wire stats from the engine into the UI on a 500 ms timer. Each row shows a real 
 
 ### Task 1: Polling task in the store
 
-- [ ] In `AppStore.init`, spawn a `Task` that runs `for await _ in Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().values { refreshStats() }`.
-- [ ] `refreshStats()` iterates the current torrents and calls `engine.torrentStats(id:)` for each, assigning the result to `vm.stats`.
-- [ ] Cancel the task in a `deinit`-equivalent or on app exit so it does not leak when the store is reconstructed.
+- [x] In `AppStore.init`, spawn a `Task` that runs `for await _ in Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().values { refreshStats() }`.
+- [x] `refreshStats()` iterates the current torrents and calls `engine.torrentStats(id:)` for each, assigning the result to `vm.stats`.
+- [x] Cancel the task in a `deinit`-equivalent or on app exit so it does not leak when the store is reconstructed.
 
 ### Task 2: Render progress in the row
 
