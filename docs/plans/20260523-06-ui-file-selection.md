@@ -11,9 +11,9 @@ After a magnet is added, present the user with the torrent's file tree and let t
 
 ### Task 1: File selection sheet view
 
-- [ ] Create `Views/FileSelectionSheet.swift` taking a `TorrentVM` and `onConfirm` / `onCancel` closures.
-- [ ] Render rows with a `Toggle` per file, the file path, and the human-readable size; track selection state in a `@State Set<UInt32>` of indexes.
-- [ ] Add `Select all` / `Select none` controls at the top of the sheet.
+- [x] Create `Views/FileSelectionSheet.swift` taking a `TorrentVM` and `onConfirm` / `onCancel` closures.
+- [x] Render rows with a `Toggle` per file, the file path, and the human-readable size; track selection state in a `@State Set<UInt32>` of indexes.
+- [x] Add `Select all` / `Select none` controls at the top of the sheet.
 
 ### Task 2: Hook into the add flow
 
