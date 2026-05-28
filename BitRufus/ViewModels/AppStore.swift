@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 // TorrentVM holds the latest info and optional stats for one torrent.
-// Stats are populated by a later plan; nil here is expected.
+// Stats are populated by the 500ms polling loop in AppStore; nil until the first poll completes.
 @MainActor
 final class TorrentVM: ObservableObject, Identifiable {
     let id: UInt64
@@ -44,7 +44,8 @@ final class AppStore: ObservableObject {
         }
         statsPollingTask = Task { [weak self] in
             for await _ in Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().values {
-                self?.refreshStats()
+                guard let self else { return }
+                self.refreshStats()
             }
         }
     }
@@ -112,7 +113,7 @@ final class AppStore: ObservableObject {
         for _ in 0..<60 {
             let files = (try? engine?.torrentFiles(id: id)) ?? []
             if !files.isEmpty { return files }
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            do { try await Task.sleep(nanoseconds: 500_000_000) } catch { return [] }
         }
         return []
     }
@@ -145,6 +146,22 @@ final class AppStore: ObservableObject {
                 vm.updateStats(s)
             }
         }
+    }
+
+    func pause(id: UInt64) async throws {
+        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
+        try await engine.pause(id: id)
+    }
+
+    func resume(id: UInt64) async throws {
+        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
+        try await engine.resume(id: id)
+    }
+
+    func remove(id: UInt64, deleteFiles: Bool) async throws {
+        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
+        try await engine.remove(id: id, deleteFiles: deleteFiles)
+        torrents.removeAll { $0.id == id }
     }
 
     func clearEngineError() {

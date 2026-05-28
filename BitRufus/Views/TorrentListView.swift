@@ -50,57 +50,63 @@ struct TorrentListView: View {
                 pendingVM = vm
             }
         }
-        .sheet(item: $fileSelectionItem, onDismiss: {
-            if let vm = pendingVM {
-                pendingVM = nil
-                Task {
-                    do {
-                        try await store.cancelTorrent(vm.id)
-                    } catch {
-                        store.confirmTorrent(vm)
-                        actionError = engineErrorMessage(error)
-                    }
-                }
-            }
-        }) { item in
-            FileSelectionSheet(
-                vm: item.vm,
-                files: item.files,
-                onConfirm: { selectedIndexes in
-                    let vm = item.vm
-                    fileSelectionItem = nil
-                    pendingVM = nil
-                    Task {
-                        do {
-                            try await store.setFileSelection(id: vm.id, selectedIndexes: selectedIndexes)
-                            store.confirmTorrent(vm)
-                        } catch let selectionError {
+        // Attach the file-selection sheet to a background EmptyView so both sheets
+        // coexist on macOS 13.0–13.2 (only one .sheet per view was supported before
+        // macOS 13.3; attaching to a separate view node avoids the conflict).
+        .background(
+            EmptyView()
+                .sheet(item: $fileSelectionItem, onDismiss: {
+                    if let vm = pendingVM {
+                        pendingVM = nil
+                        Task {
                             do {
                                 try await store.cancelTorrent(vm.id)
                             } catch {
                                 store.confirmTorrent(vm)
-                                actionError = "Failed to apply file selection. Torrent added to your list."
-                                return
+                                actionError = engineErrorMessage(error)
                             }
-                            actionError = engineErrorMessage(selectionError)
                         }
                     }
-                },
-                onCancel: {
-                    let vm = item.vm
-                    fileSelectionItem = nil
-                    pendingVM = nil
-                    Task {
-                        do {
-                            try await store.cancelTorrent(vm.id)
-                        } catch {
-                            store.confirmTorrent(vm)
-                            actionError = engineErrorMessage(error)
+                }) { item in
+                    FileSelectionSheet(
+                        vm: item.vm,
+                        files: item.files,
+                        onConfirm: { selectedIndexes in
+                            let vm = item.vm
+                            pendingVM = nil
+                            fileSelectionItem = nil
+                            Task {
+                                do {
+                                    try await store.setFileSelection(id: vm.id, selectedIndexes: selectedIndexes)
+                                    store.confirmTorrent(vm)
+                                } catch let selectionError {
+                                    do {
+                                        try await store.cancelTorrent(vm.id)
+                                    } catch {
+                                        store.confirmTorrent(vm)
+                                        actionError = "Failed to apply file selection. Torrent added to your list."
+                                        return
+                                    }
+                                    actionError = engineErrorMessage(selectionError)
+                                }
+                            }
+                        },
+                        onCancel: {
+                            let vm = item.vm
+                            pendingVM = nil
+                            fileSelectionItem = nil
+                            Task {
+                                do {
+                                    try await store.cancelTorrent(vm.id)
+                                } catch {
+                                    store.confirmTorrent(vm)
+                                    actionError = engineErrorMessage(error)
+                                }
+                            }
                         }
-                    }
+                    )
                 }
-            )
-        }
+        )
         .alert("Engine Error", isPresented: Binding(
             get: { store.engineStartError != nil },
             set: { if !$0 { store.clearEngineError() } }
@@ -123,12 +129,18 @@ struct TorrentListView: View {
 
 struct TorrentRow: View {
     @ObservedObject var vm: TorrentVM
+    @EnvironmentObject private var store: AppStore
+
+    @State private var showRemoveDialog = false
+    @State private var rowError: String?
 
     private static let byteFormatter: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.countStyle = .file
         return f
     }()
+
+    private var isPaused: Bool { vm.stats?.state == .paused }
 
     private var progress: Double {
         guard let stats = vm.stats, stats.totalBytes > 0 else { return 0.0 }
@@ -147,6 +159,54 @@ struct TorrentRow: View {
             }
         }
         .padding(.vertical, 2)
+        .contextMenu {
+            if isPaused {
+                Button("Resume") {
+                    Task {
+                        do { try await store.resume(id: vm.id) }
+                        catch { rowError = engineErrorMessage(error) }
+                    }
+                }
+            } else {
+                Button("Pause") {
+                    Task {
+                        do { try await store.pause(id: vm.id) }
+                        catch { rowError = engineErrorMessage(error) }
+                    }
+                }
+            }
+            Divider()
+            Button("Remove…", role: .destructive) {
+                showRemoveDialog = true
+            }
+        }
+        .confirmationDialog(
+            "Remove \(vm.info.name.isEmpty ? "torrent" : vm.info.name)?",
+            isPresented: $showRemoveDialog,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                Task {
+                    do { try await store.remove(id: vm.id, deleteFiles: false) }
+                    catch { rowError = engineErrorMessage(error) }
+                }
+            }
+            Button("Remove and Delete Files", role: .destructive) {
+                Task {
+                    do { try await store.remove(id: vm.id, deleteFiles: true) }
+                    catch { rowError = engineErrorMessage(error) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Error", isPresented: Binding(
+            get: { rowError != nil },
+            set: { if !$0 { rowError = nil } }
+        )) {
+            Button("OK", role: .cancel) { rowError = nil }
+        } message: {
+            Text(rowError ?? "")
+        }
     }
 
     @ViewBuilder

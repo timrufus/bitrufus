@@ -13,7 +13,7 @@ struct BitRufusApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            TorrentListView()
                 .environmentObject(store)
         }
     }

@@ -49,6 +49,12 @@ Engine IDs are stable across restarts: `Engine::new` maps each restored librqbit
 
 **`torrentFiles` before metadata resolves:** `engine.torrentFiles(id:)` calls `handle.with_metadata(...)` internally, which returns an error when torrent metadata has not yet been fetched from DHT/trackers. `AppStore.torrentFiles(id:)` silently converts this error to `[]`. Always use `AppStore.waitForTorrentFiles(id:)` when fetching files to show to the user — it polls up to 30 s for metadata to resolve before returning.
 
+**Stats polling (`statsPollingTask`):** `AppStore.init()` starts a `Task` that fires a Combine timer every 500 ms and calls `refreshStats()`. The task starts before the engine is ready; `refreshStats()` is a no-op until `engine` is non-nil. The task is cancelled in `deinit` via `statsPollingTask?.cancel()`. `TorrentVM.stats` is `nil` until the first successful poll after the engine is ready (typically within 500 ms of `isEngineReady` becoming `true`).
+
+**Background metadata polling (`pollMetadata`):** Called for any torrent with `totalBytes == 0` — both newly-confirmed magnets (from `confirmTorrent`) and restored torrents (from `startEngine`). Uses a two-phase backoff: 0.5 s × 60 polls (30 s window), then 5 s × 60 polls (5 min window). On resolution it calls `vm.refreshInfo(_:)`, which updates the VM's name and size while preserving any existing display name. Distinct from `waitForTorrentFiles` — that blocks the caller; `pollMetadata` runs as a background task and updates the VM in place.
+
+**Pause/Resume/Remove from `TorrentRow`:** `TorrentRow` exposes a context menu driven by `vm.stats?.state`. "Pause" and "Resume" are mutually exclusive based on the current state. "Remove…" presents a `confirmationDialog` offering "Remove" (`deleteFiles: false` — keeps downloaded data in `~/Downloads/TorrentApp/`) or "Remove and Delete Files" (`deleteFiles: true`). `AppStore.remove(id:deleteFiles:)` awaits `engine.remove`, then removes the VM from `torrents` on success; on failure the engine reinstates the handle so both layers stay consistent.
+
 ## Rust Toolchain
 
 Pinned to `1.95.0` via `rust-toolchain.toml`. Do not change without verifying UniFFI 0.29 compatibility. `rustup` must be installed; the build script adds `~/.cargo/bin` to PATH (Xcode strips the shell PATH).

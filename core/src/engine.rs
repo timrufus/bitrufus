@@ -14,6 +14,9 @@ type TorrentHandle = Arc<ManagedTorrent>;
 
 struct EngineInner {
     handles: HashMap<u64, TorrentHandle>,
+    // Records when each torrent was added so delete_non_selected_files can verify that
+    // stub files haven't been modified externally before removing them.
+    add_times: HashMap<u64, std::time::SystemTime>,
     // librqbit session IDs currently being deleted. Held from the moment handles.remove()
     // is called until session.delete() returns, so concurrent add_magnet calls that get
     // AlreadyManaged for the same torrent can detect the in-flight deletion and bail out
@@ -76,6 +79,7 @@ impl Engine {
             download_dir,
             inner: Mutex::new(EngineInner {
                 handles: map,
+                add_times: HashMap::new(),
                 deleting: HashSet::new(),
                 next_id: next_counter,
             }),
@@ -142,6 +146,7 @@ impl Engine {
                 let id = inner.next_id;
                 inner.next_id += 1;
                 inner.handles.insert(id, h.clone());
+                inner.add_times.insert(id, std::time::SystemTime::now());
                 id
             };
             (id, h)
@@ -168,9 +173,11 @@ impl Engine {
             return Ok(());
         }
 
-        let handle = {
+        let (handle, add_time) = {
             let inner = self.inner.lock().expect("inner lock poisoned");
-            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            let h = inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?;
+            let t = inner.add_times.get(&id).copied();
+            (h, t)
         };
 
         let only_files: HashSet<usize> =
@@ -183,7 +190,7 @@ impl Engine {
 
         // Remove files that are no longer selected so they don't linger on disk as
         // pre-allocated stubs created during librqbit's initialization phase.
-        self.delete_non_selected_files(&handle, &only_files).await;
+        self.delete_non_selected_files(&handle, &only_files, add_time).await;
 
         // Unpause unconditionally; if a concurrent set_file_selection call already
         // unpaused the torrent the "already live" error is benign — selection was applied.
@@ -251,13 +258,14 @@ impl Engine {
         // add_magnet which gets AlreadyManaged from librqbit (because session.delete has
         // not yet run) will see the tombstone and return an error rather than inserting a
         // fresh engine ID that would become a zombie once the delete completes.
-        let (librqbit_id, handle) = {
+        let (librqbit_id, handle, add_time) = {
             let mut inner = self.inner.lock().expect("inner lock poisoned");
             let h = inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?;
             let librqbit_id = h.id();
             inner.handles.remove(&id);
+            let t = inner.add_times.remove(&id);
             inner.deleting.insert(librqbit_id);
-            (librqbit_id, h)
+            (librqbit_id, h, t)
         };
         let result = self
             .session
@@ -267,8 +275,13 @@ impl Engine {
         let mut inner = self.inner.lock().expect("inner lock poisoned");
         inner.deleting.remove(&librqbit_id);
         if result.is_err() {
-            // Reinstate the handle so the torrent remains reachable if the delete failed.
+            // Reinstate both the handle and its add_time so the torrent remains fully
+            // reachable (including the mtime guard in delete_non_selected_files) if the
+            // delete failed.
             inner.handles.insert(id, handle);
+            if let Some(t) = add_time {
+                inner.add_times.insert(id, t);
+            }
         }
         result
     }
@@ -348,10 +361,15 @@ impl Engine {
 
     // Deletes pre-allocated stub files for non-selected files after the initial file
     // selection. Guards against destroying real data by checking per-file download
-    // progress: a file with any bytes already downloaded is never deleted.
+    // progress, on-disk size, and mtime relative to when this add was initiated.
     // Mirrors librqbit's subfolder layout (get_default_subfolder_for_torrent).
     // Errors are never propagated — cleanup is best-effort.
-    async fn delete_non_selected_files(&self, handle: &TorrentHandle, selected: &HashSet<usize>) {
+    async fn delete_non_selected_files(
+        &self,
+        handle: &TorrentHandle,
+        selected: &HashSet<usize>,
+        add_time: Option<std::time::SystemTime>,
+    ) {
         // file_progress[i] is the number of bytes verified for file i; 0 means the
         // file contains only pre-allocated space, not real torrent data.
         let file_progress = handle.stats().file_progress;
@@ -422,14 +440,27 @@ impl Engine {
         };
         tokio::task::spawn_blocking(move || {
             for (path, expected_len) in paths {
-                // Only remove the file if its on-disk size matches the torrent-declared
-                // length. A size mismatch means the file was not pre-allocated by librqbit
-                // and is likely a pre-existing user file that must not be deleted.
-                // Skip zero-length files: a declared size of 0 would match any empty file
-                // that happens to share the path, causing unintended deletion.
-                if expected_len > 0
-                    && std::fs::metadata(&path).map(|m| m.len()).ok() == Some(expected_len)
-                {
+                // Only remove the file if:
+                // 1. declared size > 0 (avoids matching arbitrary empty files)
+                // 2. on-disk size matches the torrent-declared length (pre-allocation marker)
+                // 3. mtime is not newer than when add_magnet was called, which would indicate
+                //    the file was written externally after librqbit created the stub
+                let is_stub = std::fs::metadata(&path)
+                    .map(|m| {
+                        if m.len() != expected_len || expected_len == 0 {
+                            return false;
+                        }
+                        if let Some(add_t) = add_time {
+                            // Allow a 2-second buffer for filesystem clock resolution and any
+                            // delay between librqbit's file creation and when we captured add_time.
+                            let cutoff = add_t + std::time::Duration::from_secs(2);
+                            m.modified().map(|mtime| mtime <= cutoff).unwrap_or(true)
+                        } else {
+                            true
+                        }
+                    })
+                    .unwrap_or(false);
+                if is_stub {
                     let _ = std::fs::remove_file(&path);
                 }
             }
@@ -465,6 +496,7 @@ mod tests {
             download_dir: dir.to_owned(),
             inner: Mutex::new(EngineInner {
                 handles: HashMap::new(),
+                add_times: HashMap::new(),
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
@@ -566,6 +598,7 @@ mod tests {
             download_dir: dir.path().to_owned(),
             inner: Mutex::new(EngineInner {
                 handles: HashMap::new(),
+                add_times: HashMap::new(),
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
@@ -647,6 +680,7 @@ mod tests {
             download_dir: dir.path().to_owned(),
             inner: Mutex::new(EngineInner {
                 handles: HashMap::new(),
+                add_times: HashMap::new(),
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
@@ -691,6 +725,7 @@ mod tests {
             download_dir: dir.path().to_owned(),
             inner: Mutex::new(EngineInner {
                 handles: HashMap::new(),
+                add_times: HashMap::new(),
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
