@@ -17,9 +17,9 @@ Wire stats from the engine into the UI on a 500 ms timer. Each row shows a real 
 
 ### Task 2: Render progress in the row
 
-- [ ] Replace the placeholder `ProgressView` in `TorrentRow` with one driven by `Double(stats.downloadedBytes) / Double(stats.totalBytes)`.
-- [ ] Add a subtitle line showing formatted speed (`ByteCountFormatter` + "/s") and peer count, e.g. "2.3 MB/s · 12 peers".
-- [ ] Show a state badge when the torrent is not actively downloading (Paused, Seeding, Error).
+- [x] Replace the placeholder `ProgressView` in `TorrentRow` with one driven by `Double(stats.downloadedBytes) / Double(stats.totalBytes)`.
+- [x] Add a subtitle line showing formatted speed (`ByteCountFormatter` + "/s") and peer count, e.g. "2.3 MB/s · 12 peers".
+- [x] Show a state badge when the torrent is not actively downloading (Paused, Seeding, Error).
 
 ### Task 3: Verify under load
 

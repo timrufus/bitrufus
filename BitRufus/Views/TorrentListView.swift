@@ -130,22 +130,66 @@ struct TorrentRow: View {
         return f
     }()
 
+    private var progress: Double {
+        guard let stats = vm.stats, stats.totalBytes > 0 else { return 0.0 }
+        return Double(stats.downloadedBytes) / Double(stats.totalBytes)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(vm.info.name.isEmpty ? "(Unknown)" : vm.info.name)
                 .lineLimit(1)
-            HStack {
-                Text(vm.info.totalBytes > 0
-                    ? Self.byteFormatter.string(fromByteCount: Int64(clamping: vm.info.totalBytes))
-                    : "Fetching…")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
+            HStack(spacing: 8) {
+                subtitleView
                 Spacer()
-                // Progress wired in a later plan; 0% placeholder until stats are available.
-                ProgressView(value: 0.0, total: 1.0)
+                ProgressView(value: progress, total: 1.0)
                     .frame(width: 120)
             }
         }
         .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var subtitleView: some View {
+        if let stats = vm.stats {
+            switch stats.state {
+            case .downloading:
+                Text(speedAndPeers(stats))
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            case .paused:
+                Text("Paused")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.orange)
+            case .seeding:
+                Text("Seeding")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.green)
+            case .error:
+                Text("Error")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.red)
+            case .initializing:
+                sizeText
+            }
+        } else {
+            sizeText
+        }
+    }
+
+    private var sizeText: some View {
+        Text(vm.info.totalBytes > 0
+            ? Self.byteFormatter.string(fromByteCount: Int64(clamping: vm.info.totalBytes))
+            : "Fetching…")
+            .foregroundStyle(.secondary)
+            .font(.caption)
+    }
+
+    private func speedAndPeers(_ stats: TorrentStats) -> String {
+        let speed = Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.downloadSpeedBps))
+        return "\(speed)/s · \(stats.peerCount) peers"
     }
 }
