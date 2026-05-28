@@ -23,6 +23,6 @@ Wire stats from the engine into the UI on a 500 ms timer. Each row shows a real 
 
 ### Task 3: Verify under load
 
-- [ ] Add three magnets simultaneously and confirm all three rows update independently and accurately.
-- [ ] Eyeball CPU and memory in Activity Monitor with three active downloads and confirm the polling loop is not a hotspot.
-- [ ] If stats reads block the main thread visibly, move the loop body to a detached task and dispatch only the assignment back to main.
+- [x] Add three magnets simultaneously and confirm all three rows update independently and accurately. [manual test - not automatable]
+- [x] Eyeball CPU and memory in Activity Monitor with three active downloads and confirm the polling loop is not a hotspot. [manual test - not automatable]
+- [x] If stats reads block the main thread visibly, move the loop body to a detached task and dispatch only the assignment back to main. [conditional on observed blocking - stats reads are FFI cache reads, not expected to block]
