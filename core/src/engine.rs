@@ -460,7 +460,7 @@ impl Engine {
                             // Allow a 2-second buffer for filesystem clock resolution and any
                             // delay between librqbit's file creation and when we captured add_time.
                             let cutoff = add_t + std::time::Duration::from_secs(2);
-                            m.modified().map(|mtime| mtime <= cutoff).unwrap_or(true)
+                            m.modified().map(|mtime| mtime <= cutoff).unwrap_or(false)
                         } else {
                             // No add_time means this is a restored session torrent; skip
                             // speculative deletion to avoid removing pre-existing files.

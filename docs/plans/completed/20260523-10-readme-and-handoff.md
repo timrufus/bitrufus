@@ -15,8 +15,8 @@ Final MVP plan: document how to build and run the app, capture a screenshot of t
 
 ### Task 2: Screenshot
 
-- [x] Run the app with at least two active downloads visible, capture a screenshot at 1x resolution, and place it at `docs/screenshots/main-window.png`. (manual test skipped - not automatable; directory created at docs/screenshots/)
-- [x] Embed it in the README under a "Screenshots" section.
+- [ ] Run the app with at least two active downloads visible, capture a screenshot at 1x resolution, and place it at `docs/screenshots/main-window.png`. (manual step — not automatable; docs/screenshots/ directory created)
+- [ ] Embed it in the README under a "Screenshots" section. (README has a placeholder Screenshots section with capture instructions, but no actual image until the manual step above is done)
 
 ### Task 3: Post-MVP backlog
 

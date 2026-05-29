@@ -44,7 +44,7 @@ Object types (classes in Swift): derive `uniffi::Object` on the struct, put meth
 
 The Engine stores torrent state as JSON in `~/Library/Application Support/com.BitRufus.BitRufus/` (resolved via `ProjectDirs::from("com", "BitRufus", "BitRufus")` in the `directories` crate — macOS concatenates qualifier+org+app into `com.BitRufus.BitRufus`). Deleting this directory resets all persisted torrent state. This is the first place to look when debugging "torrent reappears after restart" or "session not loading" issues.
 
-`TorrentStore` (`BitRufus/Persistence/TorrentStore.swift`) writes a side-file `torrents.json` to `~/Library/Application Support/BitRufus/BitRufus/torrents.json`. This file stores a map of engine ID → `{ displayName, addedAt }` under a top-level `{ version: 1, torrents: {...} }` envelope. Stale entries (IDs no longer present in the engine) are silently pruned on launch via `dropOrphans`. This is the first place to look when debugging "display name reverted after restart" issues. Note: the two directories (`com.BitRufus.BitRufus/` for the engine, `BitRufus/BitRufus/` for TorrentStore) are separate; deleting one does not affect the other.
+`TorrentStore` (`BitRufus/Persistence/TorrentStore.swift`) writes a side-file `torrents.json` to `~/Library/Application Support/BitRufus/BitRufus/torrents.json`. This file stores a map of engine ID → `{ displayName, addedAt }` under a top-level `{ "torrents": {...} }` envelope (no version field). Stale entries (IDs no longer present in the engine) are silently pruned on launch via `dropOrphans`. This is the first place to look when debugging "display name reverted after restart" issues. Note: the two directories (`com.BitRufus.BitRufus/` for the engine, `BitRufus/BitRufus/` for TorrentStore) are separate; deleting one does not affect the other.
 
 Downloaded torrent files land in `~/Downloads/TorrentApp/` — this path is set by `AppStore.startEngine()` in `BitRufus/ViewModels/AppStore.swift` and passed to `Engine(downloadDir:)`. It is distinct from the JSON session persistence path above.
 
@@ -94,7 +94,7 @@ xcodebuild -project BitRufus.xcodeproj -scheme BitRufus -configuration Debug bui
 ## Project Layout
 
 - `core/` — Rust library crate (`bitrufus_core`)
-- `BitRufus/` — SwiftUI app source (`BitRufusApp.swift` entry point, `ContentView.swift`, `ViewModels/`, `Views/`)
+- `BitRufus/` — SwiftUI app source (`BitRufusApp.swift` entry point, `ViewModels/`, `Views/`, `Persistence/`)
 - `apps/TorrentApp/Generated/` — generated Swift bindings (gitignored)
 - `scripts/build-rust.sh` — Xcode build phase script
 - `BitRufusTests/` — XCTest unit tests

@@ -2,14 +2,10 @@
 
 A macOS torrent client with a Rust core and SwiftUI frontend, bridged via UniFFI.
 
-## Screenshots
-
-![BitRufus main window showing active downloads](docs/screenshots/main-window.png)
-
 ## Prerequisites
 
 - macOS 13.0+
-- Xcode (latest stable)
+- Xcode 15 or later
 - [Rust toolchain](https://rustup.rs) — version is pinned to `1.95.0` via `rust-toolchain.toml`; `rustup` must be installed so `~/.cargo/bin` is on your PATH
 
 ## Project Structure
@@ -44,6 +40,10 @@ cargo clippy --all-targets -- -D warnings
 ## Verifying the Setup
 
 After a successful build and launch, the app shows an empty torrent list. Click `+` in the toolbar, paste a magnet link, and click Add. A file selection sheet will appear once the torrent's metadata resolves (typically a few seconds on a live network) — select the files you want and click Download. A row with the torrent's name, size, and live progress bar should appear in the list. Right-click any row to Pause, Resume, or Remove a torrent ("Remove and Delete Files" also erases downloaded data from `~/Downloads/TorrentApp/`).
+
+## Screenshots
+
+Screenshots are stored in `docs/screenshots/`. To capture one, run the app, start a couple of downloads, then take a screenshot with ⇧⌘4 and save the result as `docs/screenshots/main-window.png`.
 
 ## Download Location
 

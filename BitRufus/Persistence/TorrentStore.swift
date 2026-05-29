@@ -5,9 +5,7 @@ struct TorrentMeta: Codable {
     var addedAt: Date
 }
 
-// Versioned top-level container. Add new optional fields to extend without schema breakage.
 private struct StoreData: Codable {
-    var version: Int = 1
     var torrents: [String: TorrentMeta] = [:]
 }
 

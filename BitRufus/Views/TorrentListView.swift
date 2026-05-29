@@ -156,17 +156,20 @@ struct TorrentRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(vm.info.name.isEmpty ? "(Unknown)" : vm.info.name)
-                .lineLimit(1)
-            HStack(spacing: 8) {
-                subtitleView
-                Spacer()
-                ProgressView(value: progress, total: 1.0)
-                    .frame(width: 120)
+        HStack(spacing: 14) {
+            stateButton
+            VStack(alignment: .leading, spacing: 6) {
+                Text(vm.info.name.isEmpty ? "(Unknown)" : vm.info.name)
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    subtitleView
+                    Spacer()
+                    ProgressView(value: progress, total: 1.0)
+                        .frame(width: 120)
+                }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 8)
         .contextMenu {
             if canResume {
                 Button("Resume") {
@@ -223,16 +226,16 @@ struct TorrentRow: View {
         if let stats = vm.stats {
             switch stats.state {
             case .downloading:
-                Text(speedAndPeers(stats))
+                Text(downloadingText(stats))
                     .foregroundStyle(.secondary)
                     .font(.caption)
             case .paused:
-                Text("Paused")
+                Text("\(progressText(stats)) · Paused")
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundStyle(.orange)
             case .seeding:
-                Text("Seeding")
+                Text("\(Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.totalBytes))) · Seeding")
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundStyle(.green)
@@ -257,8 +260,69 @@ struct TorrentRow: View {
             .font(.caption)
     }
 
-    private func speedAndPeers(_ stats: TorrentStats) -> String {
+    private func progressText(_ stats: TorrentStats) -> String {
+        let down = Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.downloadedBytes))
+        let total = Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.totalBytes))
+        return "\(down) / \(total)"
+    }
+
+    private func downloadingText(_ stats: TorrentStats) -> String {
         let speed = Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.downloadSpeedBps))
-        return "\(speed)/s · \(stats.peerCount) peers"
+        var parts = [progressText(stats), "\(speed)/s"]
+        if let eta = etaText(stats) { parts.append(eta) }
+        if stats.peerCount > 0 { parts.append("\(stats.peerCount) peers") }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private var stateButton: some View {
+        switch vm.stats?.state {
+        case .downloading:
+            Button {
+                Task {
+                    do { try await store.pause(id: vm.id) }
+                    catch { rowError = engineErrorMessage(error) }
+                }
+            } label: {
+                Image(systemName: "pause.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+        case .paused, .error:
+            Button {
+                Task {
+                    do { try await store.resume(id: vm.id) }
+                    catch { rowError = engineErrorMessage(error) }
+                }
+            } label: {
+                Image(systemName: "play.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+        case .seeding:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.green)
+        case .initializing, nil:
+            Image(systemName: "circle.dotted")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func etaText(_ stats: TorrentStats) -> String? {
+        guard stats.downloadSpeedBps > 0, stats.totalBytes > stats.downloadedBytes else { return nil }
+        let seconds = Int((stats.totalBytes - stats.downloadedBytes) / stats.downloadSpeedBps)
+        if seconds < 60 {
+            return "\(seconds)s"
+        } else if seconds < 3600 {
+            return "\(seconds / 60)m \(seconds % 60)s"
+        } else {
+            let h = seconds / 3600
+            let m = (seconds % 3600) / 60
+            return "\(h)h \(m)m"
+        }
     }
 }

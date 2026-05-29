@@ -522,7 +522,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = "$(inherited) -lbitrufus_core";
-				OTHER_SWIFT_FLAGS = "-Xcc -fmodule-map-file=$(SRCROOT)/apps/TorrentApp/Generated/bitrufus_coreFFI.modulemap";
+				OTHER_SWIFT_FLAGS = "-Xcc \"-fmodule-map-file=$(SRCROOT)/apps/TorrentApp/Generated/bitrufus_coreFFI.modulemap\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.timrufus.BitRufus;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -551,7 +551,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = "$(inherited) -lbitrufus_core";
-				OTHER_SWIFT_FLAGS = "-Xcc -fmodule-map-file=$(SRCROOT)/apps/TorrentApp/Generated/bitrufus_coreFFI.modulemap";
+				OTHER_SWIFT_FLAGS = "-Xcc \"-fmodule-map-file=$(SRCROOT)/apps/TorrentApp/Generated/bitrufus_coreFFI.modulemap\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.timrufus.BitRufus;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
