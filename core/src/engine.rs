@@ -456,7 +456,9 @@ impl Engine {
                             let cutoff = add_t + std::time::Duration::from_secs(2);
                             m.modified().map(|mtime| mtime <= cutoff).unwrap_or(true)
                         } else {
-                            true
+                            // No add_time means this is a restored session torrent; skip
+                            // speculative deletion to avoid removing pre-existing files.
+                            false
                         }
                     })
                     .unwrap_or(false);

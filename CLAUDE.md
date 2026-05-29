@@ -18,6 +18,15 @@ Both `staticlib` and `cdylib` in `core/Cargo.toml` `crate-type` are required —
 
 macOS 13.0. Set in `BitRufus.xcodeproj/project.pbxproj` as `MACOSX_DEPLOYMENT_TARGET = 13.0;` (four occurrences — keep them in sync). Don't raise without a concrete API need; Xcode 14.2 ships with the macOS 13 SDK and cannot target 14.x.
 
+## App Sandbox
+
+The app runs in the macOS sandbox. Required entitlements in `BitRufus/BitRufus.entitlements`:
+- `com.apple.security.network.client` — outbound TCP/UDP for BitTorrent peer connections and DHT
+- `com.apple.security.network.server` — inbound BitTorrent peer connections (librqbit opens a listening socket)
+- `com.apple.security.files.downloads.read-write` — write access to `~/Downloads/TorrentApp/`
+
+If you add a capability that the sandbox blocks (e.g., accessing a user-selected file outside Downloads), add a matching entitlement; the build succeeds but the operation is silently denied at runtime.
+
 ## Generated Files
 
 `apps/TorrentApp/Generated/` is gitignored and regenerated on every Xcode build. Do not edit or commit files in that directory:
@@ -41,7 +50,7 @@ Engine IDs are stable across restarts: `Engine::new` maps each restored librqbit
 
 ## Concurrency Patterns
 
-**Concurrent add/remove safety (`deleting` tombstone set):** `EngineInner` carries a `deleting: HashSet<usize>` alongside `handles`. When `remove()` is called, the librqbit session ID is inserted into `deleting` and the handle is removed from `handles` — both atomically under the same lock — before `session.delete()` is awaited. Any new Engine method that calls `session.add_torrent` and may receive an `AlreadyManaged` response must check `inner.deleting` before inserting into `handles`; otherwise a concurrent remove will leave a zombie handle after the delete completes. See `add_magnet` in `core/src/engine.rs` for the reference implementation.
+**Concurrent add/remove safety (`deleting` tombstone set):** `EngineInner` carries a `deleting: HashSet<usize>` alongside `handles` and `add_times: HashMap<u64, SystemTime>`. When `remove()` is called, the librqbit session ID is inserted into `deleting`, the handle is removed from `handles`, and the entry is removed from `add_times` — all atomically under the same lock — before `session.delete()` is awaited. On a failed delete, the handle and its `add_time` are both reinstated so the torrent remains fully reachable (including the mtime guard in `delete_non_selected_files`). Any new Engine method that calls `session.add_torrent` and may receive an `AlreadyManaged` response must check `inner.deleting` before inserting into `handles`; otherwise a concurrent remove will leave a zombie handle after the delete completes. See `add_magnet` in `core/src/engine.rs` for the reference implementation.
 
 **Async engine initialization in AppStore:** `Engine(downloadDir:)` is an async constructor. `AppStore.init()` fires a detached `Task { await startEngine() }` and exposes `@Published var isEngineReady: Bool` (set to `true` after the engine is ready). UI elements that require a live engine gate on `isEngineReady` (e.g., the `+` toolbar button in `TorrentListView`). Do not call engine methods synchronously from `AppStore.init()`.
 

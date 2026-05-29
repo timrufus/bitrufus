@@ -140,11 +140,19 @@ struct TorrentRow: View {
         return f
     }()
 
-    private var isPaused: Bool { vm.stats?.state == .paused }
+    private var canResume: Bool {
+        let state = vm.stats?.state
+        return state == .paused || state == .error
+    }
+
+    private var canPause: Bool {
+        let state = vm.stats?.state
+        return state == .downloading || state == .seeding
+    }
 
     private var progress: Double {
         guard let stats = vm.stats, stats.totalBytes > 0 else { return 0.0 }
-        return Double(stats.downloadedBytes) / Double(stats.totalBytes)
+        return min(1.0, Double(stats.downloadedBytes) / Double(stats.totalBytes))
     }
 
     var body: some View {
@@ -160,22 +168,23 @@ struct TorrentRow: View {
         }
         .padding(.vertical, 2)
         .contextMenu {
-            if isPaused {
+            if canResume {
                 Button("Resume") {
                     Task {
                         do { try await store.resume(id: vm.id) }
-                        catch { rowError = engineErrorMessage(error) }
+                        catch { print("[BitRufus] resume error: \(error)"); rowError = engineErrorMessage(error) }
                     }
                 }
-            } else {
+                Divider()
+            } else if canPause {
                 Button("Pause") {
                     Task {
                         do { try await store.pause(id: vm.id) }
-                        catch { rowError = engineErrorMessage(error) }
+                        catch { print("[BitRufus] pause error: \(error)"); rowError = engineErrorMessage(error) }
                     }
                 }
+                Divider()
             }
-            Divider()
             Button("Remove…", role: .destructive) {
                 showRemoveDialog = true
             }
@@ -188,13 +197,13 @@ struct TorrentRow: View {
             Button("Remove", role: .destructive) {
                 Task {
                     do { try await store.remove(id: vm.id, deleteFiles: false) }
-                    catch { rowError = engineErrorMessage(error) }
+                    catch { print("[BitRufus] remove error: \(error)"); rowError = engineErrorMessage(error) }
                 }
             }
             Button("Remove and Delete Files", role: .destructive) {
                 Task {
                     do { try await store.remove(id: vm.id, deleteFiles: true) }
-                    catch { rowError = engineErrorMessage(error) }
+                    catch { print("[BitRufus] remove error: \(error)"); rowError = engineErrorMessage(error) }
                 }
             }
             Button("Cancel", role: .cancel) {}
