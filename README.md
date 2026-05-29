@@ -2,6 +2,10 @@
 
 A macOS torrent client with a Rust core and SwiftUI frontend, bridged via UniFFI.
 
+## Screenshots
+
+![BitRufus main window showing active downloads](docs/screenshots/main-window.png)
+
 ## Prerequisites
 
 - macOS 13.0+
