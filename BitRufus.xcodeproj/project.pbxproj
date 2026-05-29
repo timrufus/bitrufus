@@ -14,6 +14,7 @@
 		AA1B00052FC24F99005F76AA /* TorrentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00042FC24F99005F76AA /* TorrentListView.swift */; };
 		AA1B00082FC24F99005F76AA /* AddMagnetSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */; };
 		AA1B000A2FC24F99005F76AA /* FileSelectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */; };
+		BB2C00032FC24F99005F76BB /* TorrentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C00022FC24F99005F76BB /* TorrentStore.swift */; };
 		226E4A4D2FC24F9A005F76BD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 226E4A4C2FC24F9A005F76BD /* Assets.xcassets */; };
 		226E4A502FC24F9A005F76BD /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 226E4A4F2FC24F9A005F76BD /* Preview Assets.xcassets */; };
 		226E4A5B2FC24F9B005F76BD /* BitRufusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A5A2FC24F9B005F76BD /* BitRufusTests.swift */; };
@@ -45,6 +46,7 @@
 		AA1B00042FC24F99005F76AA /* TorrentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentListView.swift; sourceTree = "<group>"; };
 		AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMagnetSheet.swift; sourceTree = "<group>"; };
 		AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSelectionSheet.swift; sourceTree = "<group>"; };
+		BB2C00022FC24F99005F76BB /* TorrentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentStore.swift; sourceTree = "<group>"; };
 		226E4A4A2FC24F99005F76BD /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		226E4A4C2FC24F9A005F76BD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		226E4A4F2FC24F9A005F76BD /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
@@ -115,6 +117,7 @@
 				226E4A4E2FC24F9A005F76BD /* Preview Content */,
 				AA1B00012FC24F99005F76AA /* ViewModels */,
 				AA1B00062FC24F99005F76AA /* Views */,
+				BB2C00012FC24F99005F76BB /* Persistence */,
 			);
 			path = BitRufus;
 			sourceTree = "<group>";
@@ -125,6 +128,14 @@
 				AA1B00022FC24F99005F76AA /* AppStore.swift */,
 			);
 			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		BB2C00012FC24F99005F76BB /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				BB2C00022FC24F99005F76BB /* TorrentStore.swift */,
+			);
+			path = Persistence;
 			sourceTree = "<group>";
 		};
 		AA1B00062FC24F99005F76AA /* Views */ = {
@@ -341,6 +352,7 @@
 				AA1B00052FC24F99005F76AA /* TorrentListView.swift in Sources */,
 				AA1B00082FC24F99005F76AA /* AddMagnetSheet.swift in Sources */,
 				AA1B000A2FC24F99005F76AA /* FileSelectionSheet.swift in Sources */,
+				BB2C00032FC24F99005F76BB /* TorrentStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

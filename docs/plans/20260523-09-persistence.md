@@ -17,9 +17,9 @@ Make downloads survive app restarts. librqbit already persists the per-piece bit
 
 ### Task 2: Side-file for UI metadata
 
-- [ ] Create `Persistence/TorrentStore.swift` reading and writing `torrents.json` next to librqbit's session JSON.
-- [ ] Store a map of `id → { displayName, addedAt }` and leave room to extend in later plans without schema breakage.
-- [ ] Save on `addMagnet` success and on `remove`; load once during `AppStore.init`.
+- [x] Create `Persistence/TorrentStore.swift` reading and writing `torrents.json` next to librqbit's session JSON.
+- [x] Store a map of `id → { displayName, addedAt }` and leave room to extend in later plans without schema breakage.
+- [x] Save on `addMagnet` success and on `remove`; load once during `AppStore.init`.
 
 ### Task 3: Hydrate the store on launch
 

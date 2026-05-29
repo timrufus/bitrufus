@@ -37,6 +37,7 @@ final class AppStore: ObservableObject {
 
     private var engine: Engine?
     private var statsPollingTask: Task<Void, Never>?
+    private let torrentStore = TorrentStore()
 
     init() {
         Task {
@@ -64,6 +65,7 @@ final class AppStore: ObservableObject {
             let e = try await Engine(downloadDir: downloads)
             engine = e
             torrents = e.listTorrents().map { TorrentVM(info: $0) }
+            torrentStore.dropOrphans(keeping: Set(torrents.map { $0.id }))
             // Restored torrents whose metadata hasn't resolved yet (no size) need the same
             // background polling that addMagnet kicks off for freshly-added magnets.
             for vm in torrents where vm.info.totalBytes == 0 {
@@ -88,6 +90,7 @@ final class AppStore: ObservableObject {
     func confirmTorrent(_ vm: TorrentVM) {
         guard !torrents.contains(where: { $0.id == vm.id }) else { return }
         torrents.append(vm)
+        torrentStore.record(id: vm.id, meta: TorrentMeta(displayName: vm.info.name, addedAt: Date()))
         guard let engine, vm.info.totalBytes == 0 else { return }
         Task { await pollMetadata(for: vm.id, engine: engine) }
     }
@@ -162,6 +165,7 @@ final class AppStore: ObservableObject {
         guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
         try await engine.remove(id: id, deleteFiles: deleteFiles)
         torrents.removeAll { $0.id == id }
+        torrentStore.remove(id: id)
     }
 
     func clearEngineError() {
