@@ -10,8 +10,8 @@ Final MVP plan: document how to build and run the app, capture a screenshot of t
 
 ### Task 1: Write README
 
-- [ ] Create `README.md` at the repo root covering: project description, prerequisites, build steps (`open apps/TorrentApp.xcodeproj`, ⌘R), download location, known limitations.
-- [ ] Include a Troubleshooting section for the common Rust ↔ Xcode build issues (stale UniFFI bindings, mismatched target architectures, missing rust-toolchain).
+- [x] Create `README.md` at the repo root covering: project description, prerequisites, build steps (`open apps/TorrentApp.xcodeproj`, ⌘R), download location, known limitations.
+- [x] Include a Troubleshooting section for the common Rust ↔ Xcode build issues (stale UniFFI bindings, mismatched target architectures, missing rust-toolchain).
 
 ### Task 2: Screenshot
 
