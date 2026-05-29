@@ -20,5 +20,5 @@ Final MVP plan: document how to build and run the app, capture a screenshot of t
 
 ### Task 3: Post-MVP backlog
 
-- [ ] Add a "Roadmap" section listing what is intentionally out of scope for MVP: HTTP/FTP downloads, settings UI, bandwidth limits, sequential download, notifications, dock badge, code signing & notarization, RSS, scheduling, multi-language UI.
-- [ ] Move this plan and all prior MVP plans (`20260523-01` through `20260523-10`) into `docs/plans/completed/`.
+- [x] Add a "Roadmap" section listing what is intentionally out of scope for MVP: HTTP/FTP downloads, settings UI, bandwidth limits, sequential download, notifications, dock badge, code signing & notarization, RSS, scheduling, multi-language UI.
+- [x] Move this plan and all prior MVP plans (`20260523-01` through `20260523-10`) into `docs/plans/completed/`.

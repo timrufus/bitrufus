@@ -59,6 +59,22 @@ Files are saved to `~/Downloads/TorrentApp/`. This path is fixed for the MVP. To
 - HTTP/FTP downloads are not supported; BitTorrent only.
 - UI language is English only.
 
+## Roadmap
+
+The following features are intentionally out of scope for the MVP. They are tracked here so future contributors know what is planned versus what was deliberately deferred.
+
+- HTTP/FTP downloads (BitTorrent only for now)
+- `.torrent` file import (magnet links only)
+- Settings UI (download directory, connection limits, etc.)
+- Bandwidth limits (upload and download throttling)
+- Sequential download mode
+- System notifications on completion
+- Dock badge showing active download count
+- Code signing and notarization (binary runs only on the machine that built it)
+- RSS feed support and auto-download rules
+- Scheduling (start/stop at specific times)
+- Multi-language UI (English only)
+
 ## Troubleshooting
 
 **Stale UniFFI bindings ("module 'bitrufus_core' not found" or type mismatch errors)**
