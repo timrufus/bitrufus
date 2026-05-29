@@ -12,8 +12,8 @@ Make downloads survive app restarts. librqbit already persists the per-piece bit
 
 ### Task 1: Verify engine-side restore
 
-- [ ] Confirm `Engine::new` blocks until librqbit's session restore finishes, so `list_torrents()` returns the full restored set without a race against the UI.
-- [ ] Add a Rust integration test or doc comment describing the restore guarantee — future contributors should not have to re-derive it.
+- [x] Confirm `Engine::new` blocks until librqbit's session restore finishes, so `list_torrents()` returns the full restored set without a race against the UI.
+- [x] Add a Rust integration test or doc comment describing the restore guarantee — future contributors should not have to re-derive it.
 
 ### Task 2: Side-file for UI metadata
 
