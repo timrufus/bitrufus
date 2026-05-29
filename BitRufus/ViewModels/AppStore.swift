@@ -64,7 +64,12 @@ final class AppStore: ObservableObject {
         do {
             let e = try await Engine(downloadDir: downloads)
             engine = e
-            torrents = e.listTorrents().map { TorrentVM(info: $0) }
+            torrents = e.listTorrents().map { info in
+                let name = info.name.isEmpty
+                    ? (torrentStore.lookup(id: info.id)?.displayName ?? "")
+                    : info.name
+                return TorrentVM(info: TorrentInfo(id: info.id, name: name, totalBytes: info.totalBytes))
+            }
             torrentStore.dropOrphans(keeping: Set(torrents.map { $0.id }))
             // Restored torrents whose metadata hasn't resolved yet (no size) need the same
             // background polling that addMagnet kicks off for freshly-added magnets.

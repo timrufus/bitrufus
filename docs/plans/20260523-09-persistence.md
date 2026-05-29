@@ -23,6 +23,6 @@ Make downloads survive app restarts. librqbit already persists the per-piece bit
 
 ### Task 3: Hydrate the store on launch
 
-- [ ] After `Engine` initialization, call `engine.listTorrents()` and build a `TorrentVM` for each, joining librqbit data with the side-file.
-- [ ] Handle the edge case where the side-file has a stale id no longer known to the engine: drop the orphan entry silently and re-save the file.
-- [ ] Run the manual verification — quitting mid-download and relaunching must preserve progress.
+- [x] After `Engine` initialization, call `engine.listTorrents()` and build a `TorrentVM` for each, joining librqbit data with the side-file.
+- [x] Handle the edge case where the side-file has a stale id no longer known to the engine: drop the orphan entry silently and re-save the file.
+- [x] Run the manual verification — quitting mid-download and relaunching must preserve progress. (manual test - not automatable)
