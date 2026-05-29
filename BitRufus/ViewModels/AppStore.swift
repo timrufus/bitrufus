@@ -141,6 +141,9 @@ final class AppStore: ObservableObject {
                 if let info = engine.listTorrents().first(where: { $0.id == id }),
                    info.totalBytes > 0 {
                     vm.refreshInfo(info)
+                    // Persist the resolved display name so it survives future restarts.
+                    let addedAt = torrentStore.lookup(id: id)?.addedAt ?? Date()
+                    torrentStore.record(id: id, meta: TorrentMeta(displayName: vm.info.name, addedAt: addedAt))
                     return
                 }
             }

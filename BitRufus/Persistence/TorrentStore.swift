@@ -11,6 +11,7 @@ private struct StoreData: Codable {
     var torrents: [String: TorrentMeta] = [:]
 }
 
+@MainActor
 final class TorrentStore {
     private let url: URL
     private var data = StoreData()
@@ -54,8 +55,13 @@ final class TorrentStore {
         guard let raw = try? Data(contentsOf: url) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        if let decoded = try? decoder.decode(StoreData.self, from: raw) {
-            data = decoded
+        do {
+            data = try decoder.decode(StoreData.self, from: raw)
+        } catch {
+            print("[TorrentStore] could not decode \(url.lastPathComponent): \(error); quarantining corrupt file")
+            let backup = url.deletingLastPathComponent().appendingPathComponent("torrents.json.corrupt")
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.moveItem(at: url, to: backup)
         }
     }
 
@@ -64,6 +70,10 @@ final class TorrentStore {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let raw = try? encoder.encode(data) else { return }
-        try? raw.write(to: url, options: .atomic)
+        do {
+            try raw.write(to: url, options: .atomic)
+        } catch {
+            print("[TorrentStore] failed to write \(url.lastPathComponent): \(error)")
+        }
     }
 }

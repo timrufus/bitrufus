@@ -16,6 +16,7 @@ BitRufus/                     # SwiftUI app source
   BitRufusApp.swift           #   App entry point
   ViewModels/                 #   Observable stores (AppStore, TorrentVM)
   Views/                      #   SwiftUI views (TorrentListView, AddMagnetSheet, FileSelectionSheet)
+  Persistence/                #   UI metadata persistence (TorrentStore — torrents.json side-file)
 apps/TorrentApp/Generated/    # Auto-generated UniFFI Swift bindings (gitignored, rebuilt on each Xcode build)
 scripts/build-rust.sh         # Build phase script: compiles Rust, stages .a, regenerates Swift bindings
 BitRufusTests/                # XCTest unit tests

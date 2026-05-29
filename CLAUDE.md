@@ -42,7 +42,9 @@ Object types (classes in Swift): derive `uniffi::Object` on the struct, put meth
 
 ## Session Persistence
 
-The Engine stores torrent state as JSON in `~/Library/Application Support/BitRufus/BitRufus/` (resolved via the `directories` crate at runtime). Deleting this directory resets all persisted torrent state. This is the first place to look when debugging "torrent reappears after restart" or "session not loading" issues.
+The Engine stores torrent state as JSON in `~/Library/Application Support/com.BitRufus.BitRufus/` (resolved via `ProjectDirs::from("com", "BitRufus", "BitRufus")` in the `directories` crate — macOS concatenates qualifier+org+app into `com.BitRufus.BitRufus`). Deleting this directory resets all persisted torrent state. This is the first place to look when debugging "torrent reappears after restart" or "session not loading" issues.
+
+`TorrentStore` (`BitRufus/Persistence/TorrentStore.swift`) writes a side-file `torrents.json` to `~/Library/Application Support/BitRufus/BitRufus/torrents.json`. This file stores a map of engine ID → `{ displayName, addedAt }` under a top-level `{ version: 1, torrents: {...} }` envelope. Stale entries (IDs no longer present in the engine) are silently pruned on launch via `dropOrphans`. This is the first place to look when debugging "display name reverted after restart" issues. Note: the two directories (`com.BitRufus.BitRufus/` for the engine, `BitRufus/BitRufus/` for TorrentStore) are separate; deleting one does not affect the other.
 
 Downloaded torrent files land in `~/Downloads/TorrentApp/` — this path is set by `AppStore.startEngine()` in `BitRufus/ViewModels/AppStore.swift` and passed to `Engine(downloadDir:)`. It is distinct from the JSON session persistence path above.
 
