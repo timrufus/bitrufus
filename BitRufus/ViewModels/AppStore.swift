@@ -38,6 +38,9 @@ final class AppStore: ObservableObject {
     private var engine: Engine?
     private var statsPollingTask: Task<Void, Never>?
     private let torrentStore = TorrentStore()
+    let downloadDirectory: URL = (FileManager.default
+        .urls(for: .downloadsDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+        .appendingPathComponent("TorrentApp")
 
     init() {
         Task {

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct FileSelectionItem: Identifiable {
     let vm: TorrentVM
@@ -12,12 +13,23 @@ struct TorrentListView: View {
     @State private var pendingVM: TorrentVM?
     @State private var fileSelectionItem: FileSelectionItem?
     @State private var actionError: String?
+    @State private var showDiskSpace = false
 
     var body: some View {
         List(store.torrents) { vm in
             TorrentRow(vm: vm)
         }
         .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    showDiskSpace.toggle()
+                } label: {
+                    Label("Disk Space", systemImage: "internaldrive")
+                }
+                .popover(isPresented: $showDiskSpace) {
+                    DiskSpacePopover()
+                }
+            }
             ToolbarItem {
                 Button {
                     showAddSheet = true
@@ -150,6 +162,15 @@ struct TorrentRow: View {
         return state == .downloading || state == .seeding
     }
 
+    private func showInFinder() {
+        let base = store.downloadDirectory
+        let named = base.appendingPathComponent(vm.info.name)
+        let target = FileManager.default.fileExists(atPath: named.path) ? named : base
+        NSWorkspace.shared.activateFileViewerSelecting([target])
+    }
+
+
+
     private var progress: Double {
         guard let stats = vm.stats, stats.totalBytes > 0 else { return 0.0 }
         return min(1.0, Double(stats.downloadedBytes) / Double(stats.totalBytes))
@@ -188,6 +209,10 @@ struct TorrentRow: View {
                 }
                 Divider()
             }
+            Button("Show in Finder") {
+                showInFinder()
+            }
+            Divider()
             Button("Delete…", role: .destructive) {
                 showRemoveDialog = true
             }
@@ -230,10 +255,13 @@ struct TorrentRow: View {
                     .foregroundStyle(.secondary)
                     .font(.caption)
             case .paused:
-                Text("\(progressText(stats)) · Paused")
+                let finished = stats.totalBytes > 0 && stats.downloadedBytes >= stats.totalBytes
+                Text(finished
+                    ? "\(Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.totalBytes))) · Finished"
+                    : "\(progressText(stats)) · Paused")
                     .font(.caption)
                     .fontWeight(.medium)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(finished ? .green : .orange)
             case .seeding:
                 Text("\(Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.totalBytes))) · Seeding")
                     .font(.caption)

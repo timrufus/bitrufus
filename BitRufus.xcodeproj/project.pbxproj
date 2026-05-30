@@ -19,6 +19,7 @@
 		AA1B00052FC24F99005F76AA /* TorrentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00042FC24F99005F76AA /* TorrentListView.swift */; };
 		AA1B00082FC24F99005F76AA /* AddMagnetSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */; };
 		AA1B000A2FC24F99005F76AA /* FileSelectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */; };
+		AA1B000B2FC24F99005F76AA /* DiskSpacePopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B000C2FC24F99005F76AA /* DiskSpacePopover.swift */; };
 		BB2C00032FC24F99005F76BB /* TorrentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C00022FC24F99005F76BB /* TorrentStore.swift */; };
 /* End PBXBuildFile section */
 
@@ -58,6 +59,7 @@
 		AA1B00042FC24F99005F76AA /* TorrentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentListView.swift; sourceTree = "<group>"; };
 		AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMagnetSheet.swift; sourceTree = "<group>"; };
 		AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSelectionSheet.swift; sourceTree = "<group>"; };
+		AA1B000C2FC24F99005F76AA /* DiskSpacePopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskSpacePopover.swift; sourceTree = "<group>"; };
 		BB2C00022FC24F99005F76BB /* TorrentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -172,6 +174,7 @@
 				AA1B00042FC24F99005F76AA /* TorrentListView.swift */,
 				AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */,
 				AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */,
+				AA1B000C2FC24F99005F76AA /* DiskSpacePopover.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -371,6 +374,7 @@
 				AA1B00052FC24F99005F76AA /* TorrentListView.swift in Sources */,
 				AA1B00082FC24F99005F76AA /* AddMagnetSheet.swift in Sources */,
 				AA1B000A2FC24F99005F76AA /* FileSelectionSheet.swift in Sources */,
+				AA1B000B2FC24F99005F76AA /* DiskSpacePopover.swift in Sources */,
 				BB2C00032FC24F99005F76BB /* TorrentStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
