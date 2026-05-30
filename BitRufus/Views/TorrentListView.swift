@@ -188,22 +188,22 @@ struct TorrentRow: View {
                 }
                 Divider()
             }
-            Button("Remove…", role: .destructive) {
+            Button("Delete…", role: .destructive) {
                 showRemoveDialog = true
             }
         }
         .confirmationDialog(
-            "Remove \(vm.info.name.isEmpty ? "torrent" : vm.info.name)?",
+            vm.info.name.isEmpty ? "Delete torrent?" : vm.info.name,
             isPresented: $showRemoveDialog,
             titleVisibility: .visible
         ) {
-            Button("Remove", role: .destructive) {
+            Button("Delete Task", role: .destructive) {
                 Task {
                     do { try await store.remove(id: vm.id, deleteFiles: false) }
                     catch { print("[BitRufus] remove error: \(error)"); rowError = engineErrorMessage(error) }
                 }
             }
-            Button("Remove and Delete Files", role: .destructive) {
+            Button("Delete with Files", role: .destructive) {
                 Task {
                     do { try await store.remove(id: vm.id, deleteFiles: true) }
                     catch { print("[BitRufus] remove error: \(error)"); rowError = engineErrorMessage(error) }

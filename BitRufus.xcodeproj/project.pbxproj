@@ -9,17 +9,17 @@
 /* Begin PBXBuildFile section */
 		226E4A492FC24F99005F76BD /* BitRufusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A482FC24F99005F76BD /* BitRufusApp.swift */; };
 		226E4A4B2FC24F99005F76BD /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A4A2FC24F99005F76BD /* ContentView.swift */; };
+		226E4A4D2FC24F9A005F76BD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 226E4A4C2FC24F9A005F76BD /* Assets.xcassets */; };
+		226E4A502FC24F9A005F76BD /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 226E4A4F2FC24F9A005F76BD /* Preview Assets.xcassets */; };
+		226E4A5B2FC24F9B005F76BD /* BitRufusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A5A2FC24F9B005F76BD /* BitRufusTests.swift */; };
+		226E4A652FC24F9B005F76BD /* BitRufusUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A642FC24F9B005F76BD /* BitRufusUITests.swift */; };
+		226E4A672FC24F9B005F76BD /* BitRufusUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A662FC24F9B005F76BD /* BitRufusUITestsLaunchTests.swift */; };
 		226E4A752FC24F9B005F76BD /* bitrufus_core.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A742FC24F9B005F76BD /* bitrufus_core.swift */; };
 		AA1B00032FC24F99005F76AA /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00022FC24F99005F76AA /* AppStore.swift */; };
 		AA1B00052FC24F99005F76AA /* TorrentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00042FC24F99005F76AA /* TorrentListView.swift */; };
 		AA1B00082FC24F99005F76AA /* AddMagnetSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */; };
 		AA1B000A2FC24F99005F76AA /* FileSelectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */; };
 		BB2C00032FC24F99005F76BB /* TorrentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C00022FC24F99005F76BB /* TorrentStore.swift */; };
-		226E4A4D2FC24F9A005F76BD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 226E4A4C2FC24F9A005F76BD /* Assets.xcassets */; };
-		226E4A502FC24F9A005F76BD /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 226E4A4F2FC24F9A005F76BD /* Preview Assets.xcassets */; };
-		226E4A5B2FC24F9B005F76BD /* BitRufusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A5A2FC24F9B005F76BD /* BitRufusTests.swift */; };
-		226E4A652FC24F9B005F76BD /* BitRufusUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A642FC24F9B005F76BD /* BitRufusUITests.swift */; };
-		226E4A672FC24F9B005F76BD /* BitRufusUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226E4A662FC24F9B005F76BD /* BitRufusUITestsLaunchTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,11 +42,6 @@
 /* Begin PBXFileReference section */
 		226E4A452FC24F99005F76BD /* BitRufus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BitRufus.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		226E4A482FC24F99005F76BD /* BitRufusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitRufusApp.swift; sourceTree = "<group>"; };
-		AA1B00022FC24F99005F76AA /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
-		AA1B00042FC24F99005F76AA /* TorrentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentListView.swift; sourceTree = "<group>"; };
-		AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMagnetSheet.swift; sourceTree = "<group>"; };
-		AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSelectionSheet.swift; sourceTree = "<group>"; };
-		BB2C00022FC24F99005F76BB /* TorrentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentStore.swift; sourceTree = "<group>"; };
 		226E4A4A2FC24F99005F76BD /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		226E4A4C2FC24F9A005F76BD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		226E4A4F2FC24F9A005F76BD /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
@@ -59,6 +54,11 @@
 		226E4A742FC24F9B005F76BD /* bitrufus_core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = bitrufus_core.swift; sourceTree = "<group>"; };
 		226E4A762FC24F9B005F76BD /* bitrufus_coreFFI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bitrufus_coreFFI.h; sourceTree = "<group>"; };
 		226E4A772FC24F9B005F76BD /* bitrufus_coreFFI.modulemap */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.module; path = bitrufus_coreFFI.modulemap; sourceTree = "<group>"; };
+		AA1B00022FC24F99005F76AA /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
+		AA1B00042FC24F99005F76AA /* TorrentListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentListView.swift; sourceTree = "<group>"; };
+		AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMagnetSheet.swift; sourceTree = "<group>"; };
+		AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSelectionSheet.swift; sourceTree = "<group>"; };
+		BB2C00022FC24F99005F76BB /* TorrentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,32 +122,6 @@
 			path = BitRufus;
 			sourceTree = "<group>";
 		};
-		AA1B00012FC24F99005F76AA /* ViewModels */ = {
-			isa = PBXGroup;
-			children = (
-				AA1B00022FC24F99005F76AA /* AppStore.swift */,
-			);
-			path = ViewModels;
-			sourceTree = "<group>";
-		};
-		BB2C00012FC24F99005F76BB /* Persistence */ = {
-			isa = PBXGroup;
-			children = (
-				BB2C00022FC24F99005F76BB /* TorrentStore.swift */,
-			);
-			path = Persistence;
-			sourceTree = "<group>";
-		};
-		AA1B00062FC24F99005F76AA /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				AA1B00042FC24F99005F76AA /* TorrentListView.swift */,
-				AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */,
-					AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */,
-			);
-			path = Views;
-			sourceTree = "<group>";
-		};
 		226E4A4E2FC24F9A005F76BD /* Preview Content */ = {
 			isa = PBXGroup;
 			children = (
@@ -181,7 +155,33 @@
 				226E4A772FC24F9B005F76BD /* bitrufus_coreFFI.modulemap */,
 			);
 			name = Generated;
-			path = "apps/TorrentApp/Generated";
+			path = apps/TorrentApp/Generated;
+			sourceTree = "<group>";
+		};
+		AA1B00012FC24F99005F76AA /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				AA1B00022FC24F99005F76AA /* AppStore.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		AA1B00062FC24F99005F76AA /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA1B00042FC24F99005F76AA /* TorrentListView.swift */,
+				AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */,
+				AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		BB2C00012FC24F99005F76BB /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				BB2C00022FC24F99005F76BB /* TorrentStore.swift */,
+			);
+			path = Persistence;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -195,6 +195,7 @@
 				226E4A412FC24F99005F76BD /* Sources */,
 				226E4A422FC24F99005F76BD /* Frameworks */,
 				226E4A432FC24F99005F76BD /* Resources */,
+				2276974C2FCA65F400D1AD36 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -337,6 +338,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"$SRCROOT/scripts/build-rust.sh\"\n";
+		};
+		2276974C2FCA65F400D1AD36 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\n\"$SRCROOT/scripts/copy-icon.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -515,13 +534,16 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/target/active";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/target/active";
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "$(inherited) -lbitrufus_core";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lbitrufus_core",
+				);
 				OTHER_SWIFT_FLAGS = "-Xcc \"-fmodule-map-file=$(SRCROOT)/apps/TorrentApp/Generated/bitrufus_coreFFI.modulemap\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.timrufus.BitRufus;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -544,13 +566,16 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/target/active";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/target/active";
 				MARKETING_VERSION = 1.0;
-				OTHER_LDFLAGS = "$(inherited) -lbitrufus_core";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lbitrufus_core",
+				);
 				OTHER_SWIFT_FLAGS = "-Xcc \"-fmodule-map-file=$(SRCROOT)/apps/TorrentApp/Generated/bitrufus_coreFFI.modulemap\"";
 				PRODUCT_BUNDLE_IDENTIFIER = com.timrufus.BitRufus;
 				PRODUCT_NAME = "$(TARGET_NAME)";
