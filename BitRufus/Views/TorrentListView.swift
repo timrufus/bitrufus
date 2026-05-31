@@ -135,6 +135,14 @@ struct TorrentListView: View {
         } message: {
             Text(actionError ?? "")
         }
+        .toolbarBackground(
+            LinearGradient(
+                colors: [Color.blue.opacity(0.18), Color.indigo.opacity(0.22)],
+                startPoint: .leading,
+                endPoint: .trailing
+            ),
+            for: .windowToolbar
+        )
         .frame(minWidth: 500, minHeight: 300)
     }
 }
@@ -193,28 +201,36 @@ struct TorrentRow: View {
         .padding(.vertical, 8)
         .contextMenu {
             if canResume {
-                Button("Resume") {
+                Button {
                     Task {
                         do { try await store.resume(id: vm.id) }
                         catch { print("[BitRufus] resume error: \(error)"); rowError = engineErrorMessage(error) }
                     }
+                } label: {
+                    Label("Resume", systemImage: "play.fill")
                 }
                 Divider()
             } else if canPause {
-                Button("Pause") {
+                Button {
                     Task {
                         do { try await store.pause(id: vm.id) }
                         catch { print("[BitRufus] pause error: \(error)"); rowError = engineErrorMessage(error) }
                     }
+                } label: {
+                    Label("Pause", systemImage: "pause.fill")
                 }
                 Divider()
             }
-            Button("Show in Finder") {
+            Button {
                 showInFinder()
+            } label: {
+                Label("Show in Finder", systemImage: "folder")
             }
             Divider()
-            Button("Delete…", role: .destructive) {
+            Button(role: .destructive) {
                 showRemoveDialog = true
+            } label: {
+                Label("Delete…", systemImage: "trash")
             }
         }
         .confirmationDialog(
