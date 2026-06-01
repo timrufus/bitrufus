@@ -16,5 +16,9 @@ struct BitRufusApp: App {
             TorrentListView()
                 .environmentObject(store)
         }
+        Settings {
+            SettingsView()
+                .environmentObject(store)
+        }
     }
 }

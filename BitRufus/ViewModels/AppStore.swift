@@ -38,9 +38,7 @@ final class AppStore: ObservableObject {
     private var engine: Engine?
     private var statsPollingTask: Task<Void, Never>?
     private let torrentStore = TorrentStore()
-    let downloadDirectory: URL = (FileManager.default
-        .urls(for: .downloadsDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
-        .appendingPathComponent("TorrentApp")
+    var downloadDirectory: URL { AppSettings.shared.downloadDirectory }
 
     init() {
         Task {
@@ -59,11 +57,9 @@ final class AppStore: ObservableObject {
     }
 
     private func startEngine() async {
-        let downloads = (FileManager.default
-            .urls(for: .downloadsDirectory, in: .userDomainMask)
-            .first ?? FileManager.default.temporaryDirectory)
-            .appendingPathComponent("TorrentApp")
-            .path
+        let downloadURL = AppSettings.shared.downloadDirectory
+        try? FileManager.default.createDirectory(at: downloadURL, withIntermediateDirectories: true)
+        let downloads = downloadURL.path
         do {
             let e = try await Engine(downloadDir: downloads)
             engine = e
@@ -181,6 +177,22 @@ final class AppStore: ObservableObject {
 
     func clearEngineError() {
         engineStartError = nil
+    }
+
+    func restartEngine() {
+        statsPollingTask?.cancel()
+        statsPollingTask = nil
+        engine = nil
+        torrents = []
+        isEngineReady = false
+        engineStartError = nil
+        statsPollingTask = Task { [weak self] in
+            for await _ in Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().values {
+                guard let self else { return }
+                self.refreshStats()
+            }
+        }
+        Task { await startEngine() }
     }
 }
 

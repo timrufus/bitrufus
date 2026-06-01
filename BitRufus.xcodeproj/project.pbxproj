@@ -21,6 +21,8 @@
 		AA1B000A2FC24F99005F76AA /* FileSelectionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */; };
 		AA1B000B2FC24F99005F76AA /* DiskSpacePopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B000C2FC24F99005F76AA /* DiskSpacePopover.swift */; };
 		BB2C00032FC24F99005F76BB /* TorrentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C00022FC24F99005F76BB /* TorrentStore.swift */; };
+		CC3D00022FC24F99005F76CC /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3D00012FC24F99005F76CC /* AppSettings.swift */; };
+		CC3D00042FC24F99005F76CC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3D00032FC24F99005F76CC /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -61,6 +63,8 @@
 		AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSelectionSheet.swift; sourceTree = "<group>"; };
 		AA1B000C2FC24F99005F76AA /* DiskSpacePopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskSpacePopover.swift; sourceTree = "<group>"; };
 		BB2C00022FC24F99005F76BB /* TorrentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentStore.swift; sourceTree = "<group>"; };
+		CC3D00012FC24F99005F76CC /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		CC3D00032FC24F99005F76CC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -175,6 +179,7 @@
 				AA1B00072FC24F99005F76AA /* AddMagnetSheet.swift */,
 				AA1B00092FC24F99005F76AA /* FileSelectionSheet.swift */,
 				AA1B000C2FC24F99005F76AA /* DiskSpacePopover.swift */,
+				CC3D00032FC24F99005F76CC /* SettingsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -183,6 +188,7 @@
 			isa = PBXGroup;
 			children = (
 				BB2C00022FC24F99005F76BB /* TorrentStore.swift */,
+				CC3D00012FC24F99005F76CC /* AppSettings.swift */,
 			);
 			path = Persistence;
 			sourceTree = "<group>";
@@ -376,6 +382,8 @@
 				AA1B000A2FC24F99005F76AA /* FileSelectionSheet.swift in Sources */,
 				AA1B000B2FC24F99005F76AA /* DiskSpacePopover.swift in Sources */,
 				BB2C00032FC24F99005F76BB /* TorrentStore.swift in Sources */,
+				CC3D00022FC24F99005F76CC /* AppSettings.swift in Sources */,
+				CC3D00042FC24F99005F76CC /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

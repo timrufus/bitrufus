@@ -52,20 +52,16 @@ Files are saved to `~/Downloads/TorrentApp/`. This path is fixed for the MVP. To
 ## Known Limitations
 
 - Only magnet links are supported; `.torrent` file import is not implemented.
-- The download directory (`~/Downloads/TorrentApp/`) is not configurable via the UI.
 - No bandwidth limits, scheduling, or sequential download mode.
-- No settings panel, notifications, or dock badge.
+- No notifications, or dock badge.
 - No code signing or notarization — the binary runs only on the local machine that built it.
-- HTTP/FTP downloads are not supported; BitTorrent only.
-- UI language is English only.
 
 ## Roadmap
 
 The following features are intentionally out of scope for the MVP. They are tracked here so future contributors know what is planned versus what was deliberately deferred.
 
-- HTTP/FTP downloads (BitTorrent only for now)
 - `.torrent` file import (magnet links only)
-- Settings UI (download directory, connection limits, etc.)
+- Settings UI (connection limits, etc.)
 - Bandwidth limits (upload and download throttling)
 - Sequential download mode
 - System notifications on completion
@@ -73,7 +69,6 @@ The following features are intentionally out of scope for the MVP. They are trac
 - Code signing and notarization (binary runs only on the machine that built it)
 - RSS feed support and auto-download rules
 - Scheduling (start/stop at specific times)
-- Multi-language UI (English only)
 
 ## Troubleshooting
 
