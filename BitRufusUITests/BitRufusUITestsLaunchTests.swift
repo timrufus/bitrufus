@@ -2,7 +2,7 @@
 //  BitRufusUITestsLaunchTests.swift
 //  BitRufusUITests
 //
-//  Created by Тимофей Ермилов on 23.05.2026.
+//  Created by Tim Rufus on 23.05.2026.
 //
 
 import XCTest
