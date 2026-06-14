@@ -16,9 +16,18 @@ struct TorrentListView: View {
     @State private var showDiskSpace = false
 
     var body: some View {
-        List(store.torrents) { vm in
-            TorrentRow(vm: vm)
+        Group {
+            if store.torrents.isEmpty {
+                emptyState
+            } else {
+                List(store.torrents) { vm in
+                    TorrentRow(vm: vm)
+                }
+                .scrollContentBackground(.hidden)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button {
@@ -144,6 +153,79 @@ struct TorrentListView: View {
             for: .windowToolbar
         )
         .frame(minWidth: 500, minHeight: 300)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 18) {
+            ZStack {
+                Circle()
+                    .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                    .foregroundStyle(.quaternary)
+                    .frame(width: 84, height: 84)
+                MagnetIcon()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 38, height: 40)
+                    .scaleEffect(x: 1, y: -1)
+            }
+            VStack(spacing: 6) {
+                Text("Nothing downloading yet")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                Text("Paste a magnet link here")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Button {
+                showAddSheet = true
+            } label: {
+                Label("Add magnet link", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!store.isEngineReady || pendingVM != nil)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+}
+
+// A horseshoe magnet glyph drawn with shapes, since the SF Symbol "magnet"
+// is only available on macOS 14+ and the deployment target is macOS 13.0.
+struct MagnetIcon: View {
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let lw = w * 0.26
+            let r = (w - lw) / 2
+            let cx = w / 2
+            let top = lw / 2
+            let legBottom = h - lw / 2
+            let bandY = legBottom - lw * 0.7
+
+            ZStack {
+                // U-shaped horseshoe body.
+                Path { p in
+                    p.move(to: CGPoint(x: lw / 2, y: legBottom))
+                    p.addLine(to: CGPoint(x: lw / 2, y: top + r))
+                    p.addQuadCurve(to: CGPoint(x: cx, y: top),
+                                   control: CGPoint(x: lw / 2, y: top))
+                    p.addQuadCurve(to: CGPoint(x: w - lw / 2, y: top + r),
+                                   control: CGPoint(x: w - lw / 2, y: top))
+                    p.addLine(to: CGPoint(x: w - lw / 2, y: legBottom))
+                }
+                .stroke(style: StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round))
+
+                // Pole bands near the two tips.
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: bandY))
+                    p.addLine(to: CGPoint(x: lw, y: bandY))
+                    p.move(to: CGPoint(x: w - lw, y: bandY))
+                    p.addLine(to: CGPoint(x: w, y: bandY))
+                }
+                .stroke(style: StrokeStyle(lineWidth: lw * 0.55, lineCap: .butt))
+            }
+        }
     }
 }
 
