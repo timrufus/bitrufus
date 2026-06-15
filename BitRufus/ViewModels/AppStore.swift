@@ -18,6 +18,7 @@ final class TorrentVM: ObservableObject, Identifiable {
     }
 
     func updateStats(_ newStats: TorrentStats) {
+        guard stats != newStats else { return }
         stats = newStats
     }
 
