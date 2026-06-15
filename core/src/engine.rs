@@ -12,6 +12,11 @@ use crate::types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStat
 
 type TorrentHandle = Arc<ManagedTorrent>;
 
+// Upper bound on how long add_magnet waits for librqbit to resolve magnet metadata
+// from peers/DHT/trackers before failing. Prevents the UI from hanging indefinitely
+// on magnets with no reachable seeders.
+const MAGNET_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 struct EngineInner {
     handles: HashMap<u64, TorrentHandle>,
     // Records when each torrent was added so delete_non_selected_files can verify that
@@ -107,16 +112,22 @@ impl Engine {
         // Capture the display name from dn= before the add consumes parsed.
         let dn = parsed.name.clone();
 
-        let response = self
-            .session
-            .add_torrent(
-                AddTorrent::from_url(&magnet),
-                Some(AddTorrentOptions {
-                    paused: true,
-                    ..Default::default()
-                }),
-            )
+        // librqbit's add_torrent blocks until magnet metadata is resolved from
+        // peers/DHT/trackers (paused does not skip this). A magnet with no reachable
+        // peers (e.g. a private-tracker-only link) would otherwise hang forever, so
+        // bound the resolve with a timeout and surface a clear error instead.
+        let add_future = self.session.add_torrent(
+            AddTorrent::from_url(&magnet),
+            Some(AddTorrentOptions {
+                paused: true,
+                ..Default::default()
+            }),
+        );
+        let response = tokio::time::timeout(MAGNET_RESOLVE_TIMEOUT, add_future)
             .await
+            .map_err(|_| EngineError::Backend {
+                reason: "timed out resolving magnet metadata — no peers found. The tracker may require authentication, or there are no seeders.".to_string(),
+            })?
             .map_err(|e| EngineError::Backend {
                 reason: e.to_string(),
             })?;

@@ -10,24 +10,37 @@ struct FileSelectionItem: Identifiable {
 struct TorrentListView: View {
     @EnvironmentObject private var store: AppStore
     @State private var showAddSheet = false
-    @State private var pendingVM: TorrentVM?
     @State private var fileSelectionItem: FileSelectionItem?
     @State private var actionError: String?
     @State private var showDiskSpace = false
 
     var body: some View {
         Group {
-            if store.torrents.isEmpty {
+            if store.torrents.isEmpty && store.pendingMagnets.isEmpty {
                 emptyState
             } else {
-                List(store.torrents) { vm in
-                    TorrentRow(vm: vm)
+                List {
+                    ForEach(store.pendingMagnets) { pending in
+                        PendingMagnetRow(
+                            pending: pending,
+                            onCancel: { store.cancelPending(pending) },
+                            onRetry: { store.retryPending(pending) }
+                        )
+                    }
+                    ForEach(store.torrents) { vm in
+                        TorrentRow(vm: vm, onChooseFiles: { presentSelection(forID: vm.id) })
+                    }
                 }
                 .scrollContentBackground(.hidden)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
+        .onChange(of: store.autoPresentSelectionFor) { newValue in
+            guard let id = newValue else { return }
+            store.autoPresentSelectionFor = nil
+            presentSelection(forID: id)
+        }
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 Button {
@@ -45,84 +58,38 @@ struct TorrentListView: View {
                 } label: {
                     Label("Add Torrent", systemImage: "plus")
                 }
-                .disabled(!store.isEngineReady || pendingVM != nil)
+                .disabled(!store.isEngineReady)
             }
         }
-        .sheet(isPresented: $showAddSheet, onDismiss: {
-            if let vm = pendingVM {
-                Task {
-                    let files = await store.waitForTorrentFiles(id: vm.id)
-                    if files.isEmpty {
-                        pendingVM = nil
-                        do {
-                            try await store.cancelTorrent(vm.id)
-                            actionError = "Could not fetch torrent metadata. The magnet link may be invalid or unreachable."
-                        } catch {
-                            store.confirmTorrent(vm)
-                            actionError = engineErrorMessage(error)
-                        }
-                    } else {
-                        fileSelectionItem = FileSelectionItem(vm: vm, files: files)
-                    }
-                }
-            }
-        }) {
-            AddMagnetSheet { vm in
-                pendingVM = vm
-            }
+        .sheet(isPresented: $showAddSheet) {
+            AddMagnetSheet()
         }
         // Attach the file-selection sheet to a background EmptyView so both sheets
         // coexist on macOS 13.0–13.2 (only one .sheet per view was supported before
         // macOS 13.3; attaching to a separate view node avoids the conflict).
         .background(
             EmptyView()
-                .sheet(item: $fileSelectionItem, onDismiss: {
-                    if let vm = pendingVM {
-                        pendingVM = nil
-                        Task {
-                            do {
-                                try await store.cancelTorrent(vm.id)
-                            } catch {
-                                store.confirmTorrent(vm)
-                                actionError = engineErrorMessage(error)
-                            }
-                        }
-                    }
-                }) { item in
+                // Plain dismiss (Esc / click-away) leaves the torrent in the
+                // awaiting-files state so it can be reopened from its row; only the
+                // explicit Download / Cancel buttons below act on it.
+                .sheet(item: $fileSelectionItem) { item in
                     FileSelectionSheet(
                         vm: item.vm,
                         files: item.files,
                         onConfirm: { selectedIndexes in
-                            let vm = item.vm
-                            pendingVM = nil
+                            let id = item.vm.id
                             fileSelectionItem = nil
                             Task {
-                                do {
-                                    try await store.setFileSelection(id: vm.id, selectedIndexes: selectedIndexes)
-                                    store.confirmTorrent(vm)
-                                } catch let selectionError {
-                                    do {
-                                        try await store.cancelTorrent(vm.id)
-                                    } catch {
-                                        store.confirmTorrent(vm)
-                                        actionError = "Failed to apply file selection. Torrent added to your list."
-                                        return
-                                    }
-                                    actionError = engineErrorMessage(selectionError)
-                                }
+                                do { try await store.applyFileSelection(id: id, selectedIndexes: selectedIndexes) }
+                                catch { actionError = engineErrorMessage(error) }
                             }
                         },
                         onCancel: {
-                            let vm = item.vm
-                            pendingVM = nil
+                            let id = item.vm.id
                             fileSelectionItem = nil
                             Task {
-                                do {
-                                    try await store.cancelTorrent(vm.id)
-                                } catch {
-                                    store.confirmTorrent(vm)
-                                    actionError = engineErrorMessage(error)
-                                }
+                                do { try await store.remove(id: id, deleteFiles: true) }
+                                catch { actionError = engineErrorMessage(error) }
                             }
                         }
                     )
@@ -155,6 +122,21 @@ struct TorrentListView: View {
         .frame(minWidth: 500, minHeight: 300)
     }
 
+    // Opens the file-selection modal for a resolved torrent. Skips if a modal is
+    // already open (the torrent stays clickable in its awaiting-files row).
+    private func presentSelection(forID id: UInt64) {
+        guard fileSelectionItem == nil,
+              let vm = store.torrents.first(where: { $0.id == id }) else { return }
+        Task {
+            let files = await store.waitForTorrentFiles(id: id)
+            if files.isEmpty {
+                actionError = "Could not read the file list for this torrent."
+            } else {
+                fileSelectionItem = FileSelectionItem(vm: vm, files: files)
+            }
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 18) {
             ZStack {
@@ -182,7 +164,7 @@ struct TorrentListView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(!store.isEngineReady || pendingVM != nil)
+            .disabled(!store.isEngineReady)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
@@ -231,6 +213,7 @@ struct MagnetIcon: View {
 
 struct TorrentRow: View {
     @ObservedObject var vm: TorrentVM
+    var onChooseFiles: () -> Void = {}
     @EnvironmentObject private var store: AppStore
 
     @State private var showRemoveDialog = false
@@ -267,6 +250,44 @@ struct TorrentRow: View {
     }
 
     var body: some View {
+        if vm.needsFileSelection {
+            awaitingSelectionRow
+        } else {
+            normalRow
+        }
+    }
+
+    // Shown after a magnet resolves but before files are chosen. Tapping reopens the
+    // file-selection modal (which may have been dismissed without choosing).
+    private var awaitingSelectionRow: some View {
+        Button(action: onChooseFiles) {
+            HStack(spacing: 14) {
+                Image(systemName: "checklist")
+                    .font(.title2)
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(vm.info.name.isEmpty ? "(Unknown)" : vm.info.name)
+                        .lineLimit(1)
+                    Text("Resolved — choose files to download")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                Spacer()
+                Text("Choose files")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.orange.opacity(0.08))
+    }
+
+    private var normalRow: some View {
         HStack(spacing: 14) {
             stateButton
             VStack(alignment: .leading, spacing: 6) {
@@ -449,6 +470,60 @@ struct TorrentRow: View {
             let h = seconds / 3600
             let m = (seconds % 3600) / 60
             return "\(h)h \(m)m"
+        }
+    }
+}
+
+// A magnet whose metadata is still resolving (or has failed to resolve). Shown as a
+// placeholder row above the real torrents until it becomes a TorrentVM or is dismissed.
+struct PendingMagnetRow: View {
+    @ObservedObject var pending: PendingMagnet
+    let onCancel: () -> Void
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            statusIcon
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(pending.name)
+                    .lineLimit(1)
+                switch pending.state {
+                case .resolving:
+                    Text("Looking for peers…")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                case .failed(let reason):
+                    Text(reason)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+            }
+            Spacer()
+            if case .failed = pending.state {
+                Button("Retry", action: onRetry)
+            }
+            Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Remove")
+        }
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch pending.state {
+        case .resolving:
+            ProgressView()
+                .controlSize(.small)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.title3)
+                .foregroundStyle(.red)
         }
     }
 }

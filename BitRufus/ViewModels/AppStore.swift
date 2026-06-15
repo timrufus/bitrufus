@@ -8,6 +8,9 @@ final class TorrentVM: ObservableObject, Identifiable {
     let id: UInt64
     @Published private(set) var info: TorrentInfo
     @Published private(set) var stats: TorrentStats?
+    // True after a magnet resolves but before the user has chosen which files to
+    // download. The torrent stays paused and the row is highlighted until selection.
+    @Published var needsFileSelection: Bool = false
 
     init(info: TorrentInfo) {
         self.id = info.id
@@ -27,13 +30,41 @@ final class TorrentVM: ObservableObject, Identifiable {
     }
 }
 
+// A magnet that has been pasted but whose metadata is still being resolved from
+// peers/DHT/trackers. Shown as a placeholder row until it resolves into a TorrentVM
+// (success) or fails (timeout / no peers).
+enum PendingMagnetState: Equatable {
+    case resolving
+    case failed(String)
+}
+
+@MainActor
+final class PendingMagnet: ObservableObject, Identifiable {
+    let id = UUID()
+    let uri: String
+    @Published var name: String
+    @Published var state: PendingMagnetState = .resolving
+    // Set when the user cancels while the (non-abortable) resolve is still in flight,
+    // so the resolved torrent is removed from the engine once the add finally returns.
+    var cancelled = false
+
+    init(uri: String, name: String) {
+        self.uri = uri
+        self.name = name
+    }
+}
+
 // AppStore owns the singleton Engine and the observable list of torrents.
 // Engine.init is async, so we start it in a background Task from init().
 @MainActor
 final class AppStore: ObservableObject {
     @Published private(set) var torrents: [TorrentVM] = []
+    @Published private(set) var pendingMagnets: [PendingMagnet] = []
     @Published private(set) var engineStartError: String?
     @Published private(set) var isEngineReady: Bool = false
+    // Engine id of a just-resolved torrent whose file-selection modal should auto-open.
+    // The view consumes and clears it. nil when nothing is waiting to auto-present.
+    @Published var autoPresentSelectionFor: UInt64?
 
     private var engine: Engine?
     private var statsPollingTask: Task<Void, Never>?
@@ -81,32 +112,70 @@ final class AppStore: ObservableObject {
         }
     }
 
-    // Adds a magnet to the engine but does NOT append to `torrents`.
-    // Returns nil if the torrent is already confirmed (duplicate magnet).
-    // Caller must call confirmTorrent(_:) or cancelTorrent(_:) on the returned VM.
-    func addMagnet(_ uri: String) async throws -> TorrentVM? {
-        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
-        let info = try await engine.addMagnet(magnet: uri)
-        if torrents.contains(where: { $0.id == info.id }) { return nil }
-        return TorrentVM(info: info)
+    // Pastes a magnet and shows it as a resolving placeholder row immediately, then
+    // resolves its metadata in the background (engine.addMagnet blocks until librqbit
+    // fetches the file list from peers/DHT/trackers). On success it becomes a TorrentVM
+    // in `torrents`, paused and awaiting file selection. On failure the placeholder is
+    // marked .failed so the user can retry or dismiss it.
+    func beginAddMagnet(_ uri: String) {
+        let pending = PendingMagnet(uri: uri, name: Self.magnetDisplayName(uri) ?? "Magnet link")
+        pendingMagnets.append(pending)
+        Task { await resolvePending(pending) }
     }
 
-    func confirmTorrent(_ vm: TorrentVM) {
-        guard !torrents.contains(where: { $0.id == vm.id }) else { return }
-        torrents.append(vm)
-        torrentStore.record(id: vm.id, meta: TorrentMeta(displayName: vm.info.name, addedAt: Date()))
-        guard let engine, vm.info.totalBytes == 0 else { return }
-        Task { await pollMetadata(for: vm.id, engine: engine) }
+    private func resolvePending(_ pending: PendingMagnet) async {
+        guard let engine else {
+            pending.state = .failed("engine not initialized")
+            return
+        }
+        do {
+            let info = try await engine.addMagnet(magnet: pending.uri)
+            pendingMagnets.removeAll { $0.id == pending.id }
+            // The user cancelled while the resolve was still running: undo the engine add.
+            if pending.cancelled {
+                try? await engine.remove(id: info.id, deleteFiles: true)
+                return
+            }
+            // Duplicate of an already-listed torrent: drop the placeholder silently.
+            if torrents.contains(where: { $0.id == info.id }) { return }
+            let vm = TorrentVM(info: info)
+            vm.needsFileSelection = true
+            torrents.append(vm)
+            torrentStore.record(id: vm.id, meta: TorrentMeta(displayName: vm.info.name, addedAt: Date()))
+            autoPresentSelectionFor = vm.id
+        } catch {
+            pending.state = .failed(engineErrorMessage(error))
+        }
     }
 
-    func cancelTorrent(_ id: UInt64) async throws {
-        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
-        try await engine.remove(id: id, deleteFiles: true)
+    // Re-runs a failed resolve.
+    func retryPending(_ pending: PendingMagnet) {
+        pending.state = .resolving
+        pending.cancelled = false
+        Task { await resolvePending(pending) }
     }
 
-    func setFileSelection(id: UInt64, selectedIndexes: [UInt32]) async throws {
+    // Removes a placeholder row. If a resolve is still in flight it cannot be aborted,
+    // so we tombstone it; resolvePending removes the resulting torrent when it returns.
+    func cancelPending(_ pending: PendingMagnet) {
+        pending.cancelled = true
+        pendingMagnets.removeAll { $0.id == pending.id }
+    }
+
+    // Applies the chosen files and starts a torrent that was awaiting file selection.
+    func applyFileSelection(id: UInt64, selectedIndexes: [UInt32]) async throws {
         guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
         try await engine.setFileSelection(id: id, selectedIndexes: selectedIndexes)
+        try await engine.resume(id: id)
+        torrents.first(where: { $0.id == id })?.needsFileSelection = false
+    }
+
+    // Pulls the user-facing name out of a magnet's dn= parameter, percent-decoded.
+    private static func magnetDisplayName(_ uri: String) -> String? {
+        guard let comps = URLComponents(string: uri),
+              let dn = comps.queryItems?.first(where: { $0.name == "dn" })?.value,
+              !dn.isEmpty else { return nil }
+        return dn
     }
 
     func torrentFiles(id: UInt64) -> [FileInfo] {
