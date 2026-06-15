@@ -76,16 +76,26 @@ final class AppStore: ObservableObject {
         Task {
             await startEngine()
         }
+    }
+
+    deinit {
+        statsPollingTask?.cancel()
+    }
+
+    // Starts or stops the 0.5 s stats-polling loop. Call with active: true when the
+    // scene becomes .active and active: false when it goes .inactive/.background so the
+    // thread can truly idle rather than just no-op inside the loop. Always cancels any
+    // existing task before starting a new one, so rapid toggles are safe.
+    func setPolling(active: Bool) {
+        statsPollingTask?.cancel()
+        statsPollingTask = nil
+        guard active else { return }
         statsPollingTask = Task { [weak self] in
             for await _ in Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().values {
                 guard let self else { return }
                 self.refreshStats()
             }
         }
-    }
-
-    deinit {
-        statsPollingTask?.cancel()
     }
 
     private func startEngine() async {
@@ -250,18 +260,12 @@ final class AppStore: ObservableObject {
     }
 
     func restartEngine() {
-        statsPollingTask?.cancel()
-        statsPollingTask = nil
+        setPolling(active: false)
         engine = nil
         torrents = []
         isEngineReady = false
         engineStartError = nil
-        statsPollingTask = Task { [weak self] in
-            for await _ in Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().values {
-                guard let self else { return }
-                self.refreshStats()
-            }
-        }
+        setPolling(active: true)
         Task { await startEngine() }
     }
 }

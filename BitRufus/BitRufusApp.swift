@@ -10,11 +10,15 @@ import SwiftUI
 @main
 struct BitRufusApp: App {
     @StateObject private var store = AppStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             TorrentListView()
                 .environmentObject(store)
+                .onChange(of: scenePhase) { phase in
+                    store.setPolling(active: phase == .active)
+                }
         }
         Settings {
             SettingsView()

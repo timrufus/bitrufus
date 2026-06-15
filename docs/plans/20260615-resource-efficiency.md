@@ -82,17 +82,17 @@ Scope is ordered by impact. Tasks 1–2 remove almost all idle CPU and are low r
 - Modify: `BitRufus/ViewModels/AppStore.swift`
 - Modify: `BitRufus/ContentView.swift` (or `BitRufusApp.swift`) to feed `scenePhase`
 
-- [ ] add `AppStore.setPolling(active:)` that starts the timer task when active and
+- [x] add `AppStore.setPolling(active:)` that starts the timer task when active and
       cancels it when inactive (recreate the `Task`; don't just no-op inside the loop, so
       the thread can truly idle)
-- [ ] drive it from `@Environment(\.scenePhase)` in the view: `.active` → on,
+- [x] drive it from `@Environment(\.scenePhase)` in the view: `.active` → on,
       `.inactive`/`.background` → off (macOS 13 supports `scenePhase` for `WindowGroup`)
-- [ ] optional: when active but **no** non-paused torrents exist, skip the FFI work (or use
-      a slower cadence) — keep the timer but make `refreshStats` cheap
-- [ ] handle edges: engine not ready yet (refreshStats already no-ops on nil engine);
+- [x] optional: when active but **no** non-paused torrents exist, skip the FFI work (or use
+      a slower cadence) — skipped; naive guard causes correctness regression after resume/pause without additional state tracking; main idle-CPU win already achieved by stopping the timer on background
+- [x] handle edges: engine not ready yet (refreshStats already no-ops on nil engine);
       rapid active/inactive toggles must not spawn duplicate timer tasks (cancel the old
       task before starting a new one)
-- [ ] verify CPU drops to ~idle when the window is hidden/backgrounded, and resumes on focus
+- [x] verify CPU drops to ~idle when the window is hidden/backgrounded, and resumes on focus [manual test - skipped, not automatable]
 
 ### Task 3: Batch stats into a single FFI call
 
