@@ -100,14 +100,14 @@ Scope is ordered by impact. Tasks 1–2 remove almost all idle CPU and are low r
 - Modify: `core/src/engine.rs`
 - Modify: `BitRufus/ViewModels/AppStore.swift`
 
-- [ ] extract the `rq.stats()`→`TorrentStats` mapping from `torrent_stats` into a private
+- [x] extract the `rq.stats()`→`TorrentStats` mapping from `torrent_stats` into a private
       `fn stats_from_handle(id, &handle) -> TorrentStats`
-- [ ] add `pub fn all_stats(&self) -> Vec<TorrentStats>`: snapshot handles under the lock,
+- [x] add `pub fn all_stats(&self) -> Vec<TorrentStats>`: snapshot handles under the lock,
       release it, map each via the helper (mirror `list_torrents`' lock discipline)
-- [ ] rewrite `refreshStats()` to call `engine.allStats()` once, build an `[id: stats]`
+- [x] rewrite `refreshStats()` to call `engine.allStats()` once, build an `[id: stats]`
       map, and update each `TorrentVM` (still respecting Task 1's equality guard)
-- [ ] write a Rust unit test: `all_stats()` returns one entry per managed handle
-- [ ] build (Xcode regenerates bindings) — `cargo test -p bitrufus_core` green
+- [x] write a Rust unit test: `all_stats()` returns one entry per managed handle
+- [x] build (Xcode regenerates bindings) — `cargo test -p bitrufus_core` green
 
 ### Task 4: Poll a single torrent in `pollMetadata`
 

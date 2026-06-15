@@ -219,32 +219,17 @@ impl Engine {
             let inner = self.inner.lock().expect("inner lock poisoned");
             inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
         };
+        Ok(stats_from_handle(id, &handle))
+    }
 
-        let rq = handle.stats();
-
-        let state = map_torrent_state(rq.state, rq.finished);
-
-        let (download_speed_bps, upload_speed_bps, peer_count) = rq
-            .live
-            .map(|live| {
-                // Speed::mbps is MiB/s (SpeedEstimator::mbps = bps/1024/1024); multiply by
-                // 2^20 to recover bytes/s.
-                let dl = (live.download_speed.mbps * 1_048_576.0) as u64;
-                let ul = (live.upload_speed.mbps * 1_048_576.0) as u64;
-                let peers = live.snapshot.peer_stats.live as u32;
-                (dl, ul, peers)
-            })
-            .unwrap_or((0, 0, 0));
-
-        Ok(TorrentStats {
-            id,
-            state,
-            downloaded_bytes: rq.progress_bytes,
-            total_bytes: rq.total_bytes,
-            download_speed_bps,
-            upload_speed_bps,
-            peer_count,
-        })
+    pub fn all_stats(&self) -> Vec<TorrentStats> {
+        // Snapshot handles and release the lock before calling handle.stats() so
+        // concurrent add/remove callers are not blocked for the full iteration.
+        let snapshot: Vec<(u64, TorrentHandle)> = {
+            let inner = self.inner.lock().expect("inner lock poisoned");
+            inner.handles.iter().map(|(&id, h)| (id, h.clone())).collect()
+        };
+        snapshot.into_iter().map(|(id, handle)| stats_from_handle(id, &handle)).collect()
     }
 
     pub async fn pause(&self, id: u64) -> Result<(), EngineError> {
@@ -351,6 +336,31 @@ impl Engine {
             .map_err(|e| EngineError::Backend {
                 reason: e.to_string(),
             })
+    }
+}
+
+fn stats_from_handle(id: u64, handle: &TorrentHandle) -> TorrentStats {
+    let rq = handle.stats();
+    let state = map_torrent_state(rq.state, rq.finished);
+    let (download_speed_bps, upload_speed_bps, peer_count) = rq
+        .live
+        .map(|live| {
+            // Speed::mbps is MiB/s (SpeedEstimator::mbps = bps/1024/1024); multiply by
+            // 2^20 to recover bytes/s.
+            let dl = (live.download_speed.mbps * 1_048_576.0) as u64;
+            let ul = (live.upload_speed.mbps * 1_048_576.0) as u64;
+            let peers = live.snapshot.peer_stats.live as u32;
+            (dl, ul, peers)
+        })
+        .unwrap_or((0, 0, 0));
+    TorrentStats {
+        id,
+        state,
+        downloaded_bytes: rq.progress_bytes,
+        total_bytes: rq.total_bytes,
+        download_speed_bps,
+        upload_speed_bps,
+        peer_count,
     }
 }
 
@@ -576,6 +586,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
         assert_eq!(engine.list_torrents().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn all_stats_returns_one_entry_per_managed_handle() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        // Zero handles → zero stats.
+        assert_eq!(engine.all_stats().len(), 0);
     }
 
     #[tokio::test]

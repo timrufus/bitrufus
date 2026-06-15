@@ -231,8 +231,9 @@ final class AppStore: ObservableObject {
 
     private func refreshStats() {
         guard let engine else { return }
+        let statsMap = Dictionary(uniqueKeysWithValues: engine.allStats().map { ($0.id, $0) })
         for vm in torrents {
-            if let s = try? engine.torrentStats(id: vm.id) {
+            if let s = statsMap[vm.id] {
                 vm.updateStats(s)
             }
         }
