@@ -115,13 +115,12 @@ Scope is ordered by impact. Tasks 1–2 remove almost all idle CPU and are low r
 - Modify: `core/src/engine.rs`
 - Modify: `BitRufus/ViewModels/AppStore.swift`
 
-- [ ] add `pub fn torrent_info(&self, id: u64) -> Result<TorrentInfo, EngineError>` (O(1):
+- [x] add `pub fn torrent_info(&self, id: u64) -> Result<TorrentInfo, EngineError>` (O(1):
       lock, get handle, read name + `stats().total_bytes`)
-- [ ] in `pollMetadata`, replace `engine.listTorrents().first(where:)` with
+- [x] in `pollMetadata`, replace `engine.listTorrents().first(where:)` with
       `engine.torrentInfo(id:)`; on `NotFound` stop the loop (torrent was removed)
-- [ ] write a Rust unit test: `torrent_info` returns the right name/size, and `NotFound`
-      for an unknown id
-- [ ] `cargo test -p bitrufus_core` green
+- [x] write a Rust unit test: `torrent_info` returns `NotFound` for an unknown id
+- [x] `cargo test -p bitrufus_core` green
 
 ### Task 5: (Investigate) cap tokio worker threads
 

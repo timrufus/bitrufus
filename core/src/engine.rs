@@ -310,6 +310,18 @@ impl Engine {
         result
     }
 
+    pub fn torrent_info(&self, id: u64) -> Result<TorrentInfo, EngineError> {
+        let handle = {
+            let inner = self.inner.lock().expect("inner lock poisoned");
+            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+        };
+        Ok(TorrentInfo {
+            id,
+            name: handle.name().unwrap_or_default(),
+            total_bytes: handle.stats().total_bytes,
+        })
+    }
+
     pub fn torrent_files(&self, id: u64) -> Result<Vec<FileInfo>, EngineError> {
         let handle = {
             let inner = self.inner.lock().expect("inner lock poisoned");
@@ -594,6 +606,14 @@ mod tests {
         let engine = make_test_engine(dir.path()).await;
         // Zero handles → zero stats.
         assert_eq!(engine.all_stats().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn torrent_info_not_found() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.torrent_info(42).unwrap_err();
+        assert!(matches!(err, EngineError::NotFound { id: 42 }));
     }
 
     #[tokio::test]

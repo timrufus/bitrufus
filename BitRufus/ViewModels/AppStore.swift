@@ -217,8 +217,14 @@ final class AppStore: ObservableObject {
                     return
                 }
                 guard let vm = torrents.first(where: { $0.id == id }) else { return }
-                if let info = engine.listTorrents().first(where: { $0.id == id }),
-                   info.totalBytes > 0 {
+                let info: TorrentInfo
+                do {
+                    info = try engine.torrentInfo(id: id)
+                } catch {
+                    if case EngineError.NotFound(_) = error { return }
+                    continue
+                }
+                if info.totalBytes > 0 {
                     vm.refreshInfo(info)
                     // Persist the resolved display name so it survives future restarts.
                     let addedAt = torrentStore.lookup(id: id)?.addedAt ?? Date()
