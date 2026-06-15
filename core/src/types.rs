@@ -35,7 +35,7 @@ pub enum TorrentState {
     Error,
 }
 
-#[derive(uniffi::Record, Clone, Debug)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct TorrentStats {
     pub id: u64,
     pub state: TorrentState,

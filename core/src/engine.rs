@@ -214,14 +214,6 @@ impl Engine {
         self.unpause_idempotent(&handle).await
     }
 
-    pub fn torrent_stats(&self, id: u64) -> Result<TorrentStats, EngineError> {
-        let handle = {
-            let inner = self.inner.lock().expect("inner lock poisoned");
-            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
-        };
-        Ok(stats_from_handle(id, &handle))
-    }
-
     pub fn all_stats(&self) -> Vec<TorrentStats> {
         // Snapshot handles and release the lock before calling handle.stats() so
         // concurrent add/remove callers are not blocked for the full iteration.
@@ -586,14 +578,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn torrent_stats_not_found() {
-        let dir = TempDir::new().unwrap();
-        let engine = make_test_engine(dir.path()).await;
-        let err = engine.torrent_stats(55).unwrap_err();
-        assert!(matches!(err, EngineError::NotFound { id: 55 }));
-    }
-
-    #[tokio::test]
     async fn list_torrents_empty() {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
@@ -601,10 +585,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn all_stats_returns_one_entry_per_managed_handle() {
+    async fn all_stats_empty_when_no_handles() {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
-        // Zero handles → zero stats.
         assert_eq!(engine.all_stats().len(), 0);
     }
 
@@ -754,9 +737,9 @@ mod tests {
             0,
             "handle must be removed from the map after remove()"
         );
-        // Confirm torrent_stats now returns NotFound.
+        // Confirm torrent_info now returns NotFound.
         assert!(matches!(
-            engine.torrent_stats(info.id),
+            engine.torrent_info(info.id),
             Err(EngineError::NotFound { .. })
         ));
     }

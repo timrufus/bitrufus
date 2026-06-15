@@ -70,6 +70,7 @@ final class AppStore: ObservableObject {
     private var engine: Engine?
     private var statsPollingTask: Task<Void, Never>?
     private let torrentStore = TorrentStore()
+    private var isSceneActive: Bool = true
     var downloadDirectory: URL { AppSettings.shared.downloadDirectory }
 
     init() {
@@ -80,6 +81,13 @@ final class AppStore: ObservableObject {
 
     deinit {
         statsPollingTask?.cancel()
+    }
+
+    // Called by the view when scenePhase changes. Keeps isSceneActive in sync so that
+    // startEngine() can re-enable polling correctly even when no window is open.
+    func updateScenePhase(active: Bool) {
+        isSceneActive = active
+        setPolling(active: active)
     }
 
     // Starts or stops the 0.5 s stats-polling loop. Call with active: true when the
@@ -118,6 +126,7 @@ final class AppStore: ObservableObject {
                 Task { await self.pollMetadata(for: vm.id, engine: e) }
             }
             isEngineReady = true
+            setPolling(active: isSceneActive)
         } catch {
             engineStartError = engineErrorMessage(error)
         }
@@ -217,13 +226,7 @@ final class AppStore: ObservableObject {
                     return
                 }
                 guard let vm = torrents.first(where: { $0.id == id }) else { return }
-                let info: TorrentInfo
-                do {
-                    info = try engine.torrentInfo(id: id)
-                } catch {
-                    if case EngineError.NotFound(_) = error { return }
-                    continue
-                }
+                guard let info = try? engine.torrentInfo(id: id) else { return }
                 if info.totalBytes > 0 {
                     vm.refreshInfo(info)
                     // Persist the resolved display name so it survives future restarts.
@@ -272,7 +275,6 @@ final class AppStore: ObservableObject {
         torrents = []
         isEngineReady = false
         engineStartError = nil
-        setPolling(active: true)
         Task { await startEngine() }
     }
 }

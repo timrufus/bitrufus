@@ -17,7 +17,7 @@ struct BitRufusApp: App {
             TorrentListView()
                 .environmentObject(store)
                 .onChange(of: scenePhase) { phase in
-                    store.setPolling(active: phase == .active)
+                    store.updateScenePhase(active: phase == .active)
                 }
         }
         Settings {
