@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct FileSelectionItem: Identifiable {
     let vm: TorrentVM
@@ -13,8 +14,49 @@ struct TorrentListView: View {
     @State private var fileSelectionItem: FileSelectionItem?
     @State private var actionError: String?
     @State private var showDiskSpace = false
+    @State private var isDropTargeted = false
+    @State private var isHandlingFileDrop = false
 
     var body: some View {
+        contentArea
+            .onDrop(of: [.fileURL, .url, .text], isTargeted: $isDropTargeted) { providers in
+                handleDrop(providers: providers)
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.accentColor.opacity(isDropTargeted ? 1 : 0), lineWidth: 2)
+                    .padding(1)
+            )
+            .onChange(of: store.autoPresentSelectionFor) { newValue in
+                guard let id = newValue else { return }
+                store.autoPresentSelectionFor = nil
+                presentSelection(forID: id)
+            }
+            .toolbar { mainToolbar }
+            .sheet(isPresented: $showAddSheet) { AddMagnetSheet() }
+            .background(fileSelectionSheetHost)
+            .alert("Engine Error", isPresented: engineErrorBinding) {
+                Button("OK", role: .cancel) { store.clearEngineError() }
+            } message: {
+                Text(store.engineStartError ?? "")
+            }
+            .alert("Error", isPresented: actionErrorBinding) {
+                Button("OK", role: .cancel) { actionError = nil }
+            } message: {
+                Text(actionError ?? "")
+            }
+            .toolbarBackground(
+                LinearGradient(
+                    colors: [Color.blue.opacity(0.18), Color.indigo.opacity(0.22)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ),
+                for: .windowToolbar
+            )
+            .frame(minWidth: 500, minHeight: 300)
+    }
+
+    private var contentArea: some View {
         Group {
             if store.torrents.isEmpty && store.pendingMagnets.isEmpty {
                 emptyState
@@ -36,103 +78,229 @@ struct TorrentListView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
-        .onChange(of: store.autoPresentSelectionFor) { newValue in
-            guard let id = newValue else { return }
-            store.autoPresentSelectionFor = nil
-            presentSelection(forID: id)
-        }
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button {
-                    showDiskSpace.toggle()
-                } label: {
-                    Label("Disk Space", systemImage: "internaldrive")
-                }
-                .popover(isPresented: $showDiskSpace) {
-                    DiskSpacePopover()
-                }
+    }
+
+    @ToolbarContentBuilder
+    private var mainToolbar: some ToolbarContent {
+        ToolbarItem(placement: .automatic) {
+            Button { showDiskSpace.toggle() } label: {
+                Label("Disk Space", systemImage: "internaldrive")
             }
-            ToolbarItem {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Label("Add Torrent", systemImage: "plus")
-                }
-                .disabled(!store.isEngineReady)
+            .popover(isPresented: $showDiskSpace) { DiskSpacePopover() }
+        }
+        ToolbarItem {
+            Button { showAddSheet = true } label: {
+                Label("Add Torrent", systemImage: "plus")
             }
+            .disabled(!store.isEngineReady)
         }
-        .sheet(isPresented: $showAddSheet) {
-            AddMagnetSheet()
+        ToolbarItem {
+            Button { openTorrentFilePicker() } label: {
+                Label("Open Torrent File\u{2026}", systemImage: "doc.badge.plus")
+            }
+            .disabled(!store.isEngineReady || fileSelectionItem != nil || isHandlingFileDrop)
         }
-        // Attach the file-selection sheet to a background EmptyView so both sheets
-        // coexist on macOS 13.0–13.2 (only one .sheet per view was supported before
-        // macOS 13.3; attaching to a separate view node avoids the conflict).
-        .background(
-            EmptyView()
-                // Plain dismiss (Esc / click-away) leaves the torrent in the
-                // awaiting-files state so it can be reopened from its row; only the
-                // explicit Download / Cancel buttons below act on it.
-                .sheet(item: $fileSelectionItem) { item in
-                    FileSelectionSheet(
-                        vm: item.vm,
-                        files: item.files,
-                        onConfirm: { selectedIndexes in
-                            let id = item.vm.id
-                            fileSelectionItem = nil
-                            Task {
-                                do { try await store.applyFileSelection(id: id, selectedIndexes: selectedIndexes) }
-                                catch { actionError = engineErrorMessage(error) }
-                            }
-                        },
-                        onCancel: {
-                            let id = item.vm.id
-                            fileSelectionItem = nil
-                            Task {
-                                do { try await store.remove(id: id, deleteFiles: true) }
-                                catch { actionError = engineErrorMessage(error) }
-                            }
+    }
+
+    // Attach the file-selection sheet to a background EmptyView so both sheets
+    // coexist on macOS 13.0–13.2 (only one .sheet per view was supported before
+    // macOS 13.3; attaching to a separate view node avoids the conflict).
+    private var fileSelectionSheetHost: some View {
+        EmptyView()
+            // Plain dismiss (Esc / click-away) leaves the torrent in the
+            // awaiting-files state so it can be reopened from its row; only the
+            // explicit Download / Cancel buttons below act on it.
+            .sheet(item: $fileSelectionItem) { item in
+                FileSelectionSheet(
+                    vm: item.vm,
+                    files: item.files,
+                    onConfirm: { selectedIndexes in
+                        let id = item.vm.id
+                        fileSelectionItem = nil
+                        Task {
+                            do { try await store.applyFileSelection(id: id, selectedIndexes: selectedIndexes) }
+                            catch { actionError = engineErrorMessage(error) }
                         }
-                    )
-                }
-        )
-        .alert("Engine Error", isPresented: Binding(
+                    },
+                    onCancel: {
+                        let id = item.vm.id
+                        fileSelectionItem = nil
+                        Task {
+                            do { try await store.remove(id: id, deleteFiles: true) }
+                            catch { actionError = engineErrorMessage(error) }
+                        }
+                    }
+                )
+            }
+    }
+
+    private var engineErrorBinding: Binding<Bool> {
+        Binding(
             get: { store.engineStartError != nil },
             set: { if !$0 { store.clearEngineError() } }
-        )) {
-            Button("OK", role: .cancel) { store.clearEngineError() }
-        } message: {
-            Text(store.engineStartError ?? "")
-        }
-        .alert("Error", isPresented: Binding(
+        )
+    }
+
+    private var actionErrorBinding: Binding<Bool> {
+        Binding(
             get: { actionError != nil },
             set: { if !$0 { actionError = nil } }
-        )) {
-            Button("OK", role: .cancel) { actionError = nil }
-        } message: {
-            Text(actionError ?? "")
-        }
-        .toolbarBackground(
-            LinearGradient(
-                colors: [Color.blue.opacity(0.18), Color.indigo.opacity(0.22)],
-                startPoint: .leading,
-                endPoint: .trailing
-            ),
-            for: .windowToolbar
         )
-        .frame(minWidth: 500, minHeight: 300)
     }
 
     // Opens the file-selection modal for a resolved torrent. Skips if a modal is
     // already open (the torrent stays clickable in its awaiting-files row).
     private func presentSelection(forID id: UInt64) {
-        guard fileSelectionItem == nil,
-              let vm = store.torrents.first(where: { $0.id == id }) else { return }
+        guard let vm = store.torrents.first(where: { $0.id == id }) else { return }
+        beginFileSelection(for: vm)
+    }
+
+    // Fetches the file list and opens the FileSelectionSheet for a given VM.
+    // Shared by the magnet auto-present path, the picker, and the drop handler.
+    // Skips if a file-selection modal is already open.
+    private func beginFileSelection(for vm: TorrentVM) {
+        guard fileSelectionItem == nil else { return }
         Task {
-            let files = await store.waitForTorrentFiles(id: id)
+            let files = await store.waitForTorrentFiles(id: vm.id)
+            // Re-check after the async wait: another call may have opened the sheet.
+            guard fileSelectionItem == nil else { return }
             if files.isEmpty {
                 actionError = "Could not read the file list for this torrent."
             } else {
                 fileSelectionItem = FileSelectionItem(vm: vm, files: files)
+            }
+        }
+    }
+
+    // Presents a system file picker restricted to .torrent files, reads the selected
+    // file's bytes, and routes through the existing two-phase add flow.
+    private func openTorrentFilePicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.title = "Open Torrent File"
+        panel.allowedContentTypes = [UTType(filenameExtension: "torrent") ?? .data]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            do {
+                let data = try Data(contentsOf: url)
+                if let vm = try await store.addTorrentFile(data) {
+                    beginFileSelection(for: vm)
+                } else {
+                    actionError = "This torrent is already in the list."
+                }
+            } catch {
+                actionError = engineErrorMessage(error)
+            }
+        }
+    }
+
+    // Handles a drop onto the torrent list. Accepts .torrent file URLs and magnet text/URLs.
+    // Returns true if the drop was accepted (even if the extension check fails later), false if
+    // no actionable item was found (triggers OS rejection animation).
+    @discardableResult
+    private func handleDrop(providers: [NSItemProvider]) -> Bool {
+        guard store.isEngineReady, fileSelectionItem == nil else { return false }
+
+        // File drop: iterate all .fileURL providers so a valid .torrent isn't skipped when
+        // non-torrent files appear earlier in the drop. Error on non-torrent files is suppressed
+        // in multi-file drops to avoid a confusing error+success mix.
+        let fileProviders = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
+        if !fileProviders.isEmpty {
+            let suppressNonTorrentError = fileProviders.count > 1
+            for provider in fileProviders {
+                _ = provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
+                    if let error {
+                        Task { @MainActor in actionError = error.localizedDescription }
+                        return
+                    }
+                    let url: URL?
+                    if let u = item as? NSURL { url = u as URL }
+                    else if let d = item as? Data { url = URL(dataRepresentation: d, relativeTo: nil) }
+                    else { url = nil }
+                    guard let url else { return }
+                    guard url.pathExtension.lowercased() == "torrent" else {
+                        if !suppressNonTorrentError {
+                            Task { @MainActor in actionError = "Only .torrent files can be dropped here." }
+                        }
+                        return
+                    }
+                    // Read while the sandbox grant from the drag session is still active
+                    // (the grant may not extend to asynchronously dispatched Tasks).
+                    let data: Data
+                    do { data = try Data(contentsOf: url) } catch {
+                        Task { @MainActor in actionError = error.localizedDescription }
+                        return
+                    }
+                    Task { @MainActor in
+                        // Guard against multiple .torrent files in the same drop racing to open the sheet.
+                        // isHandlingFileDrop is set synchronously before the await so concurrent Tasks
+                        // that pass the fileSelectionItem check see the flag and bail out.
+                        guard fileSelectionItem == nil, !isHandlingFileDrop else { return }
+                        isHandlingFileDrop = true
+                        do {
+                            if let vm = try await store.addTorrentFile(data) {
+                                beginFileSelection(for: vm)
+                            } else {
+                                actionError = "This torrent is already in the list."
+                            }
+                        } catch {
+                            actionError = engineErrorMessage(error)
+                        }
+                        isHandlingFileDrop = false
+                    }
+                }
+            }
+            return true
+        }
+
+        // Text/URL drop: route through the magnet add flow. Providers are tried sequentially
+        // so a valid magnet isn't skipped when a non-magnet item appears earlier. For each
+        // provider, text is tried first; URL is the fallback if text isn't a magnet link.
+        // Only the first valid magnet per drop is added (multi-add is a follow-up).
+        let textOrURLProviders = providers.filter {
+            $0.hasItemConformingToTypeIdentifier(UTType.text.identifier) ||
+            $0.hasItemConformingToTypeIdentifier(UTType.url.identifier)
+        }
+        guard !textOrURLProviders.isEmpty else { return false }
+        Task { @MainActor in
+            for provider in textOrURLProviders {
+                if let uri = await loadMagnetURI(from: provider) {
+                    store.beginAddMagnet(uri)
+                    return
+                }
+            }
+            actionError = "Only magnet links are supported."
+        }
+        return true
+    }
+
+    // Returns the first magnet URI from the provider, trying .text before .url.
+    private func loadMagnetURI(from provider: NSItemProvider) async -> String? {
+        if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier),
+           let text = await loadProviderString(from: provider, typeId: UTType.text.identifier),
+           text.lowercased().hasPrefix("magnet:") {
+            return text
+        }
+        if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
+           let text = await loadProviderString(from: provider, typeId: UTType.url.identifier),
+           text.lowercased().hasPrefix("magnet:") {
+            return text
+        }
+        return nil
+    }
+
+    private func loadProviderString(from provider: NSItemProvider, typeId: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadItem(forTypeIdentifier: typeId, options: nil) { item, _ in
+                let raw: String?
+                if let s = item as? String { raw = s }
+                else if let d = item as? Data { raw = String(data: d, encoding: .utf8) }
+                else if let u = item as? NSURL { raw = u.absoluteString }
+                else { raw = nil }
+                let trimmed = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                continuation.resume(returning: trimmed.isEmpty ? nil : trimmed)
             }
         }
     }
@@ -153,7 +321,7 @@ struct TorrentListView: View {
                 Text("Nothing downloading yet")
                     .font(.title2)
                     .fontWeight(.semibold)
-                Text("Paste a magnet link here")
+                Text("Paste a magnet link or drop a .torrent file")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -268,7 +436,7 @@ struct TorrentRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(vm.info.name.isEmpty ? "(Unknown)" : vm.info.name)
                         .lineLimit(1)
-                    Text("Resolved — choose files to download")
+                    Text("Ready — choose files to download")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }

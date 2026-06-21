@@ -151,9 +151,13 @@ final class AppStore: ObservableObject {
         do {
             let info = try await engine.addMagnet(magnet: pending.uri)
             pendingMagnets.removeAll { $0.id == pending.id }
-            // The user cancelled while the resolve was still running: undo the engine add.
+            // The user cancelled while the resolve was still running: undo the engine add,
+            // but only if the torrent wasn't subsequently re-added (e.g. via .torrent file)
+            // before this resolution completed — in that case leave the live torrent alone.
             if pending.cancelled {
-                try? await engine.remove(id: info.id, deleteFiles: true)
+                if !torrents.contains(where: { $0.id == info.id }) {
+                    try? await engine.remove(id: info.id, deleteFiles: true)
+                }
                 return
             }
             // Duplicate of an already-listed torrent: drop the placeholder silently.
@@ -166,6 +170,20 @@ final class AppStore: ObservableObject {
         } catch {
             pending.state = .failed(engineErrorMessage(error))
         }
+    }
+
+    // Adds a .torrent file by its raw bytes. Returns nil if the torrent is already in
+    // the list (duplicate), or a new TorrentVM paused and awaiting file selection.
+    // Unlike addMagnet, metadata is embedded in the file so no pollMetadata is needed.
+    func addTorrentFile(_ data: Data) async throws -> TorrentVM? {
+        guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
+        let info = try await engine.addTorrentFile(bytes: data)
+        if torrents.contains(where: { $0.id == info.id }) { return nil }
+        let vm = TorrentVM(info: info)
+        vm.needsFileSelection = true
+        torrents.append(vm)
+        torrentStore.record(id: vm.id, meta: TorrentMeta(displayName: vm.info.name, addedAt: Date()))
+        return vm
     }
 
     // Re-runs a failed resolve.
@@ -282,6 +300,7 @@ final class AppStore: ObservableObject {
 func engineErrorMessage(_ error: Error) -> String {
     if case EngineError.Backend(let reason) = error { return reason }
     if case EngineError.InvalidMagnet(let reason) = error { return reason }
+    if case EngineError.InvalidTorrent(let reason) = error { return "invalid torrent file: \(reason)" }
     if case EngineError.Io(let reason) = error { return reason }
     if case EngineError.NotFound(let id) = error { return "torrent not found: \(id)" }
     return error.localizedDescription

@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use directories::ProjectDirs;
 use librqbit::{
-    AddTorrent, AddTorrentOptions, AddTorrentResponse, Magnet, ManagedTorrent, Session,
-    SessionOptions, SessionPersistenceConfig, TorrentStatsState,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, ByteBufOwned, Magnet, ManagedTorrent,
+    Session, SessionOptions, SessionPersistenceConfig, TorrentStatsState, torrent_from_bytes,
 };
 
 use crate::types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStats};
@@ -132,53 +132,31 @@ impl Engine {
                 reason: e.to_string(),
             })?;
 
-        // Resolve the handle from either variant, rejecting the unused ListOnly path.
-        let h = match response {
-            AddTorrentResponse::Added(_, h) | AddTorrentResponse::AlreadyManaged(_, h) => h,
-            AddTorrentResponse::ListOnly(_) => {
-                return Err(EngineError::Backend {
-                    reason: "unexpected list_only response".to_string(),
-                });
-            }
-        };
-        // Hold the lock across the deleting check, the ptr_eq lookup, and the conditional
-        // insert so concurrent adds and an in-flight remove cannot race:
-        // - If remove() already pulled this handle's librqbit ID into the deleting set,
-        //   session.delete() is still running; inserting a new engine ID here would create
-        //   a zombie once the delete completes, so we return an error instead.
-        // - The ptr_eq dedup prevents two concurrent adds from allocating separate IDs for
-        //   the same handle (including the case where librqbit returns Added twice).
-        let (id, handle) = {
-            let mut inner = self.inner.lock().expect("inner lock poisoned");
-            if inner.deleting.contains(&h.id()) {
-                return Err(EngineError::Backend {
-                    reason: "torrent is currently being deleted".to_string(),
-                });
-            }
-            let existing =
-                inner.handles.iter().find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
-            let id = if let Some(id) = existing {
-                id
-            } else {
-                let id = inner.next_id;
-                inner.next_id += 1;
-                inner.handles.insert(id, h.clone());
-                inner.add_times.insert(id, std::time::SystemTime::now());
-                id
-            };
-            (id, h)
-        };
+        // For paused magnet-only adds, metadata (name, size) may not be resolved yet;
+        // fall back to the dn= display name captured above.
+        self.register_added_handle(response, dn)
+    }
 
-        let stats = handle.stats();
-        // For paused magnet-only adds, metadata (name, size) is not resolved until
-        // the torrent contacts trackers/DHT. Fall back to the dn= display name.
-        let name = handle.name().or(dn).unwrap_or_default();
-
-        Ok(TorrentInfo {
-            id,
-            name,
-            total_bytes: stats.total_bytes,
-        })
+    pub async fn add_torrent_file(&self, bytes: Vec<u8>) -> Result<TorrentInfo, EngineError> {
+        // Pre-validate so parse failures map to InvalidTorrent and session failures map to Backend.
+        torrent_from_bytes::<ByteBufOwned>(&bytes).map_err(|e| EngineError::InvalidTorrent {
+            reason: e.to_string(),
+        })?;
+        let response = self
+            .session
+            .add_torrent(
+                AddTorrent::from_bytes(bytes),
+                Some(AddTorrentOptions {
+                    paused: true,
+                    ..Default::default()
+                }),
+            )
+            .await
+            .map_err(|e| EngineError::Backend {
+                reason: e.to_string(),
+            })?;
+        // .torrent files embed the full info dict, so no fallback name is needed.
+        self.register_added_handle(response, None)
     }
 
     pub async fn set_file_selection(
@@ -379,6 +357,61 @@ fn map_torrent_state(state: TorrentStatsState, finished: bool) -> TorrentState {
 }
 
 impl Engine {
+    // Resolves the handle from an AddTorrentResponse, applies the deleting-tombstone check
+    // and ptr_eq dedup, allocates an engine ID (or returns the existing one), and builds
+    // TorrentInfo. Shared by add_magnet and add_torrent_file so the concurrency-critical
+    // block lives in exactly one place.
+    fn register_added_handle(
+        &self,
+        response: AddTorrentResponse,
+        fallback_name: Option<String>,
+    ) -> Result<TorrentInfo, EngineError> {
+        let h = match response {
+            AddTorrentResponse::Added(_, h) | AddTorrentResponse::AlreadyManaged(_, h) => h,
+            AddTorrentResponse::ListOnly(_) => {
+                return Err(EngineError::Backend {
+                    reason: "unexpected list_only response".to_string(),
+                });
+            }
+        };
+        // Hold the lock across the deleting check, the ptr_eq lookup, and the conditional
+        // insert so concurrent adds and an in-flight remove cannot race:
+        // - If remove() already pulled this handle's librqbit ID into the deleting set,
+        //   session.delete() is still running; inserting a new engine ID here would create
+        //   a zombie once the delete completes, so we return an error instead.
+        // - The ptr_eq dedup prevents two concurrent adds from allocating separate IDs for
+        //   the same handle (including the case where librqbit returns Added twice).
+        let (id, handle) = {
+            let mut inner = self.inner.lock().expect("inner lock poisoned");
+            if inner.deleting.contains(&h.id()) {
+                return Err(EngineError::Backend {
+                    reason: "torrent is currently being deleted".to_string(),
+                });
+            }
+            let existing =
+                inner.handles.iter().find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
+            let id = if let Some(id) = existing {
+                id
+            } else {
+                let id = inner.next_id;
+                inner.next_id += 1;
+                inner.handles.insert(id, h.clone());
+                inner.add_times.insert(id, std::time::SystemTime::now());
+                id
+            };
+            (id, h)
+        };
+
+        let stats = handle.stats();
+        let name = handle.name().or(fallback_name).unwrap_or_default();
+
+        Ok(TorrentInfo {
+            id,
+            name,
+            total_bytes: stats.total_bytes,
+        })
+    }
+
     // Calls session.unpause and swallows the "already live" error that librqbit returns
     // when unpause is called on a torrent that is already running
     // (torrent_state/mod.rs:322 in librqbit 8.1.1). All other errors are propagated.
@@ -614,6 +647,78 @@ mod tests {
         let engine = make_test_engine(dir.path()).await;
         let err = engine.set_file_selection(77, vec![0, 0, 0]).await.unwrap_err();
         assert!(matches!(err, EngineError::NotFound { id: 77 }));
+    }
+
+    // Builds a minimal valid single-file .torrent as raw bencoded bytes.
+    // Structure: d4:infod6:lengthi1024e4:name8:test.txt12:piece lengthi16384e6:pieces20:<20 bytes>ee
+    // Keys are in lexicographic order as required by the bencode spec.
+    // One piece (ceil(1024/16384) = 1) → pieces field is exactly 20 bytes.
+    fn minimal_torrent_bytes() -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(
+            b"d4:infod6:lengthi1024e4:name8:test.txt12:piece lengthi16384e6:pieces20:",
+        );
+        v.extend_from_slice(&[0u8; 20]);
+        v.extend_from_slice(b"ee");
+        v
+    }
+
+    #[tokio::test]
+    async fn corrupt_torrent_bytes_returns_invalid_torrent() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let err = engine.add_torrent_file(b"not a torrent".to_vec()).await.unwrap_err();
+        assert!(matches!(err, EngineError::InvalidTorrent { .. }));
+    }
+
+    #[tokio::test]
+    async fn valid_torrent_file_returns_torrent_info() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let info = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
+        assert_eq!(info.name, "test.txt", "name must match the info dict name field");
+        assert!(info.total_bytes > 0, "total_bytes must be populated immediately from .torrent");
+    }
+
+    #[tokio::test]
+    async fn duplicate_torrent_file_returns_same_id() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let info1 = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
+        let info2 = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
+        assert_eq!(info1.id, info2.id, "duplicate add must return the same engine id");
+        assert_eq!(
+            engine.inner.lock().unwrap().handles.len(),
+            1,
+            "duplicate add must not create a second handle"
+        );
+    }
+
+    // Verifies that the deleting-tombstone check in register_added_handle applies to
+    // add_torrent_file (shared code path; also covers add_magnet via the same helper).
+    #[tokio::test]
+    async fn add_torrent_file_blocked_during_delete() {
+        let dir = TempDir::new().unwrap();
+        let engine = make_test_engine(dir.path()).await;
+        let info = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
+
+        // Simulate an in-flight deletion by inserting the librqbit session ID into deleting.
+        let librqbit_id = {
+            let inner = engine.inner.lock().unwrap();
+            inner.handles.get(&info.id).unwrap().id()
+        };
+        engine.inner.lock().unwrap().deleting.insert(librqbit_id);
+
+        // A second add of the same bytes returns AlreadyManaged, which then hits the
+        // deleting check and must return a Backend error rather than a zombie handle.
+        let err = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap_err();
+        assert!(
+            matches!(err, EngineError::Backend { .. }),
+            "expected Backend error for add-during-delete, got {err:?}"
+        );
+
+        // Clean up so the engine is left in a consistent state.
+        engine.inner.lock().unwrap().deleting.remove(&librqbit_id);
     }
 
     // Verifies ids are strictly increasing across real torrent additions.

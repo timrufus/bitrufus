@@ -50,6 +50,8 @@ pub struct TorrentStats {
 pub enum EngineError {
     #[error("invalid magnet link: {reason}")]
     InvalidMagnet { reason: String },
+    #[error("invalid torrent file: {reason}")]
+    InvalidTorrent { reason: String },
     #[error("torrent not found: {id}")]
     NotFound { id: u64 },
     #[error("io error: {reason}")]

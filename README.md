@@ -98,8 +98,11 @@ xcodebuild -project BitRufus.xcodeproj -scheme BitRufus -configuration Debug bui
 After a successful build and launch:
 
 1. The app shows an empty torrent list.
-2. Click **+** in the toolbar and paste a magnet link, then click **Add**.
-3. A file-selection sheet appears once metadata resolves (a few seconds on a live network). Select the files you want and click **Download**.
+2. Add a torrent via any of these methods:
+   - Click **+** in the toolbar and paste a magnet link, then click **Add**.
+   - Click **Open Torrent File…** in the toolbar and pick a `.torrent` file.
+   - Drag a `.torrent` file (or paste magnet text) onto the torrent list.
+3. A file-selection sheet appears (immediately for `.torrent` files; after a few seconds for magnet links while metadata resolves). Select the files you want and click **Download**.
 4. A row with the torrent name, size, and a live progress bar appears in the list.
 5. Right-click any row to **Pause**, **Resume**, or **Remove** a torrent. "Remove and Delete Files" also erases downloaded data.
 
@@ -111,17 +114,16 @@ Torrent session state (survives restarts) is stored separately in `~/Library/App
 
 ## Known Limitations
 
-- Only magnet links are supported; `.torrent` file import is not implemented.
 - No bandwidth throttling (upload or download limits).
 - No sequential download mode.
 - No system notifications or dock badge.
 - No code signing or notarization — the binary runs only on the machine that built it.
+- Pure BitTorrent v2-only `.torrent` files are not pre-validated and may fail with a backend error; hybrid v1+v2 torrents work via their v1 infohash.
 
 ## Roadmap
 
 Features intentionally out of scope for the current version:
 
-- `.torrent` file import
 - Bandwidth limits (upload and download throttling)
 - Sequential download mode
 - System notifications on completion
