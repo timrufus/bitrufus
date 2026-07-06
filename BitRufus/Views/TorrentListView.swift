@@ -674,7 +674,9 @@ struct PendingMagnetRow: View {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         let elapsed = max(0, Int(context.date.timeIntervalSince(pending.startedAt)))
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Looking for peers… (\(Self.elapsedString(elapsed)))")
+                            Text(pending.attempt > 1
+                                ? "Looking for peers… retry \(pending.attempt) (\(Self.elapsedString(elapsed)))"
+                                : "Looking for peers… (\(Self.elapsedString(elapsed)))")
                                 .font(.caption)
                                 .foregroundStyle(.blue)
                             if elapsed >= 30 {

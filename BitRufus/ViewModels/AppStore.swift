@@ -50,6 +50,8 @@ final class PendingMagnet: ObservableObject, Identifiable {
     var cancelled = false
     // When the current resolve attempt started, for showing elapsed time in the row.
     var startedAt = Date()
+    // Which auto-retry attempt is currently running (1-based); shown in the row after the first.
+    @Published var attempt = 1
 
     init(uri: String, name: String) {
         self.uri = uri
@@ -145,32 +147,51 @@ final class AppStore: ObservableObject {
         Task { await resolvePending(pending) }
     }
 
+    // Number of automatic resolve attempts before giving up and offering a manual Retry.
+    // Tracker DNS blocks are frequently intermittent, so simply re-attempting usually
+    // catches a working window — this is effectively what clients like Folx do.
+    private static let magnetResolveAttempts = 5
+
     private func resolvePending(_ pending: PendingMagnet) async {
         guard let engine else {
             pending.state = .failed("engine not initialized")
             return
         }
-        do {
-            let info = try await engine.addMagnet(magnet: pending.uri)
-            pendingMagnets.removeAll { $0.id == pending.id }
-            // The user cancelled while the resolve was still running: undo the engine add,
-            // but only if the torrent wasn't subsequently re-added (e.g. via .torrent file)
-            // before this resolution completed — in that case leave the live torrent alone.
-            if pending.cancelled {
-                if !torrents.contains(where: { $0.id == info.id }) {
-                    try? await engine.remove(id: info.id, deleteFiles: true)
+        while true {
+            pending.startedAt = Date()
+            do {
+                let info = try await engine.addMagnet(magnet: pending.uri)
+                pendingMagnets.removeAll { $0.id == pending.id }
+                // The user cancelled while the resolve was still running: undo the engine add,
+                // but only if the torrent wasn't subsequently re-added (e.g. via .torrent file)
+                // before this resolution completed — in that case leave the live torrent alone.
+                if pending.cancelled {
+                    if !torrents.contains(where: { $0.id == info.id }) {
+                        try? await engine.remove(id: info.id, deleteFiles: true)
+                    }
+                    return
                 }
+                // Duplicate of an already-listed torrent: drop the placeholder silently.
+                if torrents.contains(where: { $0.id == info.id }) { return }
+                let vm = TorrentVM(info: info)
+                vm.needsFileSelection = true
+                torrents.append(vm)
+                torrentStore.record(id: vm.id, meta: TorrentMeta(displayName: vm.info.name, addedAt: Date()))
+                autoPresentSelectionFor = vm.id
                 return
+            } catch {
+                // Cancelled while the (non-abortable) attempt was in flight: stop quietly.
+                if pending.cancelled { return }
+                // Out of automatic attempts: surface the error with a manual Retry button.
+                guard pending.attempt < Self.magnetResolveAttempts else {
+                    pending.state = .failed(engineErrorMessage(error))
+                    return
+                }
+                // Brief pause, then retry — the block is often intermittent.
+                pending.attempt += 1
+                do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { return }
+                if pending.cancelled { return }
             }
-            // Duplicate of an already-listed torrent: drop the placeholder silently.
-            if torrents.contains(where: { $0.id == info.id }) { return }
-            let vm = TorrentVM(info: info)
-            vm.needsFileSelection = true
-            torrents.append(vm)
-            torrentStore.record(id: vm.id, meta: TorrentMeta(displayName: vm.info.name, addedAt: Date()))
-            autoPresentSelectionFor = vm.id
-        } catch {
-            pending.state = .failed(engineErrorMessage(error))
         }
     }
 
@@ -192,6 +213,7 @@ final class AppStore: ObservableObject {
     func retryPending(_ pending: PendingMagnet) {
         pending.state = .resolving
         pending.cancelled = false
+        pending.attempt = 1
         pending.startedAt = Date()
         Task { await resolvePending(pending) }
     }

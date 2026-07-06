@@ -13,12 +13,14 @@ use crate::types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStat
 
 type TorrentHandle = Arc<ManagedTorrent>;
 
-// Upper bound on how long add_magnet waits for librqbit to resolve magnet metadata
-// from peers/DHT/trackers before failing. Generous enough that a slow-but-live swarm
-// (few seeders, peers behind NAT) still resolves, while still bounding the background
-// resolve so a magnet with no reachable peers can't tie up a task forever. The UI shows
-// elapsed time and a "try the .torrent file" hint during this window.
-const MAGNET_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+// Upper bound on how long a single add_magnet attempt waits for librqbit to resolve
+// magnet metadata from peers/DHT/trackers before failing. This is per-attempt: the Swift
+// layer auto-retries a failed resolve several times, because tracker DNS blocks are often
+// intermittent and simply re-attempting catches a working window (how clients like Folx
+// succeed). A shorter per-attempt bound therefore retries sooner instead of burning one
+// long wait; long-but-live swarms still resolve within the window, and the UI shows
+// elapsed time plus a "try the .torrent file" hint.
+const MAGNET_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 // Upper bound on how long set_file_selection waits for a freshly-added torrent to finish
 // librqbit's Initializing phase (file integrity check / allocation) before applying the
