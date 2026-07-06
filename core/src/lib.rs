@@ -4,6 +4,7 @@ mod types;
 pub use types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStats};
 
 mod engine;
+mod storage;
 pub use engine::Engine;
 
 #[uniffi::export]

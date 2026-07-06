@@ -325,14 +325,24 @@ struct TorrentListView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            Button {
-                showAddSheet = true
-            } label: {
-                Label("Add magnet link", systemImage: "plus")
+            HStack(spacing: 12) {
+                Button {
+                    showAddSheet = true
+                } label: {
+                    Label("Add magnet link", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(!store.isEngineReady)
+
+                Button {
+                    openTorrentFilePicker()
+                } label: {
+                    Label("Open File", systemImage: "folder")
+                }
+                .controlSize(.large)
+                .disabled(!store.isEngineReady || fileSelectionItem != nil || isHandlingFileDrop)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(!store.isEngineReady)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()

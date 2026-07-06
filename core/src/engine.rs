@@ -8,6 +8,7 @@ use librqbit::{
     Session, SessionOptions, SessionPersistenceConfig, TorrentStatsState, torrent_from_bytes,
 };
 
+use crate::storage::no_prealloc_factory;
 use crate::types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStats};
 
 type TorrentHandle = Arc<ManagedTorrent>;
@@ -16,6 +17,12 @@ type TorrentHandle = Arc<ManagedTorrent>;
 // from peers/DHT/trackers before failing. Prevents the UI from hanging indefinitely
 // on magnets with no reachable seeders.
 const MAGNET_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+// Upper bound on how long set_file_selection waits for a freshly-added torrent to finish
+// librqbit's Initializing phase (file integrity check / allocation) before applying the
+// file selection. update_only_files bails with "can't update initializing torrent" if
+// called during that window.
+const INIT_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 struct EngineInner {
     handles: HashMap<u64, TorrentHandle>,
@@ -47,6 +54,8 @@ impl Engine {
     /// immediately with no risk of racing against an in-progress restore.
     #[uniffi::constructor]
     pub async fn new(download_dir: String) -> Result<Arc<Self>, EngineError> {
+        init_logging();
+
         let persistence_folder = ProjectDirs::from("com", "BitRufus", "BitRufus")
             .ok_or_else(|| EngineError::Io {
                 reason: "cannot determine application data directory".to_string(),
@@ -58,6 +67,18 @@ impl Engine {
             persistence: Some(SessionPersistenceConfig::Json {
                 folder: Some(persistence_folder),
             }),
+            // Open a TCP listener for inbound peer connections. Without listen_port_range
+            // librqbit never binds a socket, announces port=0 to trackers/DHT, and can only
+            // connect outbound — which yields few or zero peers on many swarms (peers behind
+            // NAT, small swarms), leaving downloads stuck at 0 bytes. The sandbox already
+            // grants com.apple.security.network.server for exactly this. UPnP forwarding
+            // helps home-router peers reach us.
+            listen_port_range: Some(6881..6890),
+            enable_upnp_port_forwarding: true,
+            // Skip upfront full-file preallocation so downloads to exFAT/FAT external drives
+            // (no sparse-file support) don't freeze while zero-filling the whole file. See
+            // crate::storage for the rationale.
+            default_storage_factory: Some(no_prealloc_factory()),
             ..Default::default()
         };
 
@@ -120,6 +141,11 @@ impl Engine {
             AddTorrent::from_url(&magnet),
             Some(AddTorrentOptions {
                 paused: true,
+                // Reuse/resume existing files on disk instead of failing when a file already
+                // exists (librqbit's create_new default). Matches how librqbit restores
+                // persisted torrents (into_add_torrent sets overwrite: true) and how other
+                // clients resume; pieces are hash-checked, so existing data is not clobbered.
+                overwrite: true,
                 ..Default::default()
             }),
         );
@@ -148,6 +174,10 @@ impl Engine {
                 AddTorrent::from_bytes(bytes),
                 Some(AddTorrentOptions {
                     paused: true,
+                    // Reuse/resume existing files rather than failing when they already exist
+                    // (e.g. re-adding a torrent whose data is already partly downloaded).
+                    // Same setting librqbit uses when restoring persisted torrents.
+                    overwrite: true,
                     ..Default::default()
                 }),
             )
@@ -177,6 +207,15 @@ impl Engine {
 
         let only_files: HashSet<usize> =
             selected_indexes.into_iter().map(|i| i as usize).collect();
+
+        // A freshly-added torrent (even one added paused) transitions through
+        // Initializing (file integrity check / allocation) before settling into Paused.
+        // librqbit's update_only_files bails with "can't update initializing torrent"
+        // during that window, so wait for the torrent to leave Initializing — which for a
+        // paused add is monotonic (Initializing -> Paused, never back) — before applying
+        // the selection. Without this, clicking Download right after add races the init
+        // and silently leaves the torrent unselected and paused.
+        self.wait_until_left_initializing(&handle).await?;
 
         self.session
             .update_only_files(&handle, &only_files)
@@ -295,12 +334,16 @@ impl Engine {
     pub fn torrent_files(&self, id: u64) -> Result<Vec<FileInfo>, EngineError> {
         let handle = {
             let inner = self.inner.lock().expect("inner lock poisoned");
-            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            inner.handles.get(&id).cloned().ok_or_else(|| {
+                let known: Vec<u64> = inner.handles.keys().copied().collect();
+                tracing::warn!(id, ?known, "torrent_files: id not found in handles");
+                EngineError::NotFound { id }
+            })?
         };
 
         let only_files = handle.only_files();
 
-        handle
+        let result = handle
             .with_metadata(|metadata| {
                 metadata
                     .file_infos
@@ -317,8 +360,31 @@ impl Engine {
             })
             .map_err(|e| EngineError::Backend {
                 reason: e.to_string(),
-            })
+            });
+        match &result {
+            Ok(files) => tracing::debug!(id, count = files.len(), "torrent_files ok"),
+            Err(e) => tracing::warn!(id, error = ?e, "torrent_files failed"),
+        }
+        result
     }
+}
+
+// Installs a tracing subscriber once so librqbit's diagnostics (tracker announces, peer
+// connections, disk-write errors, etc.) surface on stderr — visible in Console.app and the
+// Xcode console. Default verbosity keeps librqbit at info; override with RUST_LOG, e.g.
+// `RUST_LOG=librqbit=debug`. Safe to call repeatedly: try_init is a no-op after the first.
+fn init_logging() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        use tracing_subscriber::EnvFilter;
+        let filter = EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| EnvFilter::new("librqbit=info,bitrufus_core=debug"));
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(std::io::stderr)
+            .try_init();
+    });
 }
 
 fn stats_from_handle(id: u64, handle: &TorrentHandle) -> TorrentStats {
@@ -410,6 +476,29 @@ impl Engine {
             name,
             total_bytes: stats.total_bytes,
         })
+    }
+
+    // Waits for a freshly-added torrent to leave the Initializing state (librqbit's
+    // file-integrity-check / allocation phase) before file selection is applied. For a
+    // paused add the transition is monotonic (Initializing -> Paused, never back), so once
+    // the state is anything other than Initializing it is safe to call update_only_files.
+    // Bounded so a torrent stuck initializing surfaces an error instead of hanging the UI.
+    async fn wait_until_left_initializing(
+        &self,
+        handle: &TorrentHandle,
+    ) -> Result<(), EngineError> {
+        let start = std::time::Instant::now();
+        loop {
+            if !matches!(handle.stats().state, TorrentStatsState::Initializing) {
+                return Ok(());
+            }
+            if start.elapsed() >= INIT_WAIT_TIMEOUT {
+                return Err(EngineError::Backend {
+                    reason: "torrent is still initializing after 30s".to_string(),
+                });
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
     }
 
     // Calls session.unpause and swallows the "already live" error that librqbit returns
@@ -678,6 +767,48 @@ mod tests {
         let info = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
         assert_eq!(info.name, "test.txt", "name must match the info dict name field");
         assert!(info.total_bytes > 0, "total_bytes must be populated immediately from .torrent");
+    }
+
+    // Regression for the "storages other than FilesystemStorageFactory are not supported"
+    // bail: adding a .torrent file with JSON session persistence enabled (as the real app
+    // runs) plus the NoPrealloc storage factory must succeed. Metadata is embedded in the
+    // .torrent, so persistence runs on add and hits librqbit's storage-type gate; the
+    // factory claims the FilesystemStorageFactory type id so it passes. make_test_engine
+    // has persistence disabled, which is why the other add_torrent_file tests miss this.
+
+    #[tokio::test]
+    async fn torrent_file_persists_with_no_prealloc_factory() {
+        let dir = TempDir::new().unwrap();
+        let session = Session::new_with_opts(
+            dir.path().to_owned(),
+            SessionOptions {
+                disable_dht: true,
+                disable_dht_persistence: true,
+                persistence: Some(SessionPersistenceConfig::Json {
+                    folder: Some(dir.path().join("session")),
+                }),
+                default_storage_factory: Some(no_prealloc_factory()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("session creation");
+        let engine = Arc::new(Engine {
+            session,
+            download_dir: dir.path().to_owned(),
+            inner: Mutex::new(EngineInner {
+                handles: HashMap::new(),
+                add_times: HashMap::new(),
+                deleting: HashSet::new(),
+                next_id: 1,
+            }),
+        });
+
+        let info = engine
+            .add_torrent_file(minimal_torrent_bytes())
+            .await
+            .expect("add must succeed with persistence + no-prealloc factory");
+        assert_eq!(info.name, "test.txt");
     }
 
     #[tokio::test]
@@ -969,5 +1100,50 @@ mod tests {
         );
         // Disk verification (only selected file appears under the download dir) requires
         // waiting for actual piece data to be written, which is out of scope for CI.
+    }
+
+    // Regression test for NoPreallocStorageFactory: it must skip librqbit's upfront
+    // set_len(full_size). After a paused add, the default backend reserves the torrent's full
+    // declared length (1024 bytes here), while the no-prealloc backend leaves the file at 0 —
+    // it grows only as pieces are written. On exFAT/FAT that reserved length is physically
+    // zero-filled, which is the freeze this backend avoids.
+    async fn file_size_after_paused_add(use_factory: bool) -> u64 {
+        let dir = TempDir::new().unwrap();
+        let session = Session::new_with_opts(
+            dir.path().to_owned(),
+            SessionOptions {
+                disable_dht: true,
+                disable_dht_persistence: true,
+                default_storage_factory: use_factory.then(no_prealloc_factory),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("session");
+        let engine = Arc::new(Engine {
+            session,
+            download_dir: dir.path().to_owned(),
+            inner: Mutex::new(EngineInner {
+                handles: HashMap::new(),
+                add_times: HashMap::new(),
+                deleting: HashSet::new(),
+                next_id: 1,
+            }),
+        });
+        let info = engine.add_torrent_file(minimal_torrent_bytes()).await.expect("add");
+        let handle = engine.inner.lock().unwrap().handles.get(&info.id).unwrap().clone();
+        engine.wait_until_left_initializing(&handle).await.ok();
+        // minimal_torrent_bytes names the single file "test.txt" with length 1024.
+        std::fs::metadata(dir.path().join("test.txt")).map(|m| m.len()).unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn default_backend_preallocates_full_length() {
+        assert_eq!(file_size_after_paused_add(false).await, 1024);
+    }
+
+    #[tokio::test]
+    async fn no_prealloc_backend_skips_preallocation() {
+        assert_eq!(file_size_after_paused_add(true).await, 0);
     }
 }
