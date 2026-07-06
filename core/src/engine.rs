@@ -14,9 +14,11 @@ use crate::types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStat
 type TorrentHandle = Arc<ManagedTorrent>;
 
 // Upper bound on how long add_magnet waits for librqbit to resolve magnet metadata
-// from peers/DHT/trackers before failing. Prevents the UI from hanging indefinitely
-// on magnets with no reachable seeders.
-const MAGNET_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+// from peers/DHT/trackers before failing. Generous enough that a slow-but-live swarm
+// (few seeders, peers behind NAT) still resolves, while still bounding the background
+// resolve so a magnet with no reachable peers can't tie up a task forever. The UI shows
+// elapsed time and a "try the .torrent file" hint during this window.
+const MAGNET_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 // Upper bound on how long set_file_selection waits for a freshly-added torrent to finish
 // librqbit's Initializing phase (file integrity check / allocation) before applying the
@@ -152,7 +154,7 @@ impl Engine {
         let response = tokio::time::timeout(MAGNET_RESOLVE_TIMEOUT, add_future)
             .await
             .map_err(|_| EngineError::Backend {
-                reason: "timed out resolving magnet metadata — no peers found. The tracker may require authentication, or there are no seeders.".to_string(),
+                reason: "Couldn't find any peers for this magnet. The tracker may be unreachable on your network, or there are no seeders — adding the .torrent file instead is more reliable.".to_string(),
             })?
             .map_err(|e| EngineError::Backend {
                 reason: e.to_string(),

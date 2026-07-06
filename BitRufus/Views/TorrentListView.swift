@@ -668,9 +668,23 @@ struct PendingMagnetRow: View {
                     .lineLimit(1)
                 switch pending.state {
                 case .resolving:
-                    Text("Looking for peers…")
-                        .font(.caption)
-                        .foregroundStyle(.blue)
+                    // Tick once a second so the elapsed time reads as live progress rather
+                    // than a stuck spinner; after a while, nudge toward the .torrent file,
+                    // which is far more reliable when the tracker is unreachable.
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let elapsed = max(0, Int(context.date.timeIntervalSince(pending.startedAt)))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Looking for peers… (\(Self.elapsedString(elapsed)))")
+                                .font(.caption)
+                                .foregroundStyle(.blue)
+                            if elapsed >= 30 {
+                                Text("Taking a while — the tracker may be unreachable on your network. Adding the .torrent file instead is more reliable.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
                 case .failed(let reason):
                     Text(reason)
                         .font(.caption)
@@ -703,5 +717,10 @@ struct PendingMagnetRow: View {
                 .font(.title3)
                 .foregroundStyle(.red)
         }
+    }
+
+    // Formats an elapsed duration in seconds as m:ss.
+    private static func elapsedString(_ seconds: Int) -> String {
+        String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }

@@ -48,6 +48,8 @@ final class PendingMagnet: ObservableObject, Identifiable {
     // Set when the user cancels while the (non-abortable) resolve is still in flight,
     // so the resolved torrent is removed from the engine once the add finally returns.
     var cancelled = false
+    // When the current resolve attempt started, for showing elapsed time in the row.
+    var startedAt = Date()
 
     init(uri: String, name: String) {
         self.uri = uri
@@ -190,6 +192,7 @@ final class AppStore: ObservableObject {
     func retryPending(_ pending: PendingMagnet) {
         pending.state = .resolving
         pending.cancelled = false
+        pending.startedAt = Date()
         Task { await resolvePending(pending) }
     }
 
