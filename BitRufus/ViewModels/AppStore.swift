@@ -149,8 +149,9 @@ final class AppStore: ObservableObject {
 
     // Number of automatic resolve attempts before giving up and offering a manual Retry.
     // Tracker DNS blocks are frequently intermittent, so simply re-attempting usually
-    // catches a working window — this is effectively what clients like Folx do.
-    private static let magnetResolveAttempts = 5
+    // catches a working window — this is effectively what clients like Folx do. Kept
+    // generous (~40 min of attempts at 120s each) since the loop is cheap and cancellable.
+    private static let magnetResolveAttempts = 20
 
     private func resolvePending(_ pending: PendingMagnet) async {
         guard let engine else {
