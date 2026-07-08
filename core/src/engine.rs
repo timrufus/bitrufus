@@ -252,9 +252,12 @@ impl Engine {
         };
         match self.session.pause(&handle).await {
             Ok(()) => Ok(()),
-            // librqbit bails with "torrent is already paused" when pause is called on a
-            // paused torrent (torrent_state/mod.rs in librqbit 8.1.1). Treat as Ok.
-            Err(e) if e.to_string().contains("already paused") => Ok(()),
+            // librqbit reports "already paused" as a plain (string-only) anyhow error.
+            // Rather than match on that unstable message, confirm the desired end-state:
+            // if the torrent is now paused the call was effectively a no-op success. Real
+            // failures (e.g. "can't pause initializing torrent") leave it unpaused and
+            // still propagate.
+            Err(_) if handle.is_paused() => Ok(()),
             Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
         }
     }
@@ -505,13 +508,14 @@ impl Engine {
         }
     }
 
-    // Calls session.unpause and swallows the "already live" error that librqbit returns
-    // when unpause is called on a torrent that is already running
-    // (torrent_state/mod.rs:322 in librqbit 8.1.1). All other errors are propagated.
+    // Calls session.unpause idempotently. librqbit returns a plain (string-only) anyhow
+    // error ("torrent is already live") when unpause is called on a running torrent; rather
+    // than match that unstable message, we confirm via state — if the torrent ended up
+    // unpaused the call effectively succeeded. Real failures leave it paused and propagate.
     async fn unpause_idempotent(&self, handle: &TorrentHandle) -> Result<(), EngineError> {
         match self.session.unpause(handle).await {
             Ok(()) => Ok(()),
-            Err(e) if e.to_string().contains("already live") => Ok(()),
+            Err(_) if !handle.is_paused() => Ok(()),
             Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
         }
     }
