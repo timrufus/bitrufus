@@ -44,6 +44,10 @@ pub struct TorrentStats {
     pub download_speed_bps: u64,
     pub upload_speed_bps: u64,
     pub peer_count: u32,
+    // librqbit's error string when state == Error (e.g. a storage failure); None otherwise.
+    // Surfaced in the torrent row so an errored torrent explains itself instead of
+    // silently sitting at 0 B/s.
+    pub error_message: Option<String>,
 }
 
 #[derive(uniffi::Error, thiserror::Error, Debug)]

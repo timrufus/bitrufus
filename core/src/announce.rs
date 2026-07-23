@@ -16,6 +16,19 @@ use std::time::Duration;
 const ANNOUNCE_TIMEOUT: Duration = Duration::from_secs(6);
 const USER_AGENT: &str = concat!("BitRufus/", env!("CARGO_PKG_VERSION"));
 
+/// Parameters forwarded to upstream trackers. Mirrors the standard announce query;
+/// the tracker proxy fills these from librqbit's own announce, while the add-time
+/// helper synthesizes them.
+pub(crate) struct AnnounceParams {
+    pub info_hash: [u8; 20],
+    pub peer_id: [u8; 20],
+    pub port: u16,
+    pub uploaded: u64,
+    pub downloaded: u64,
+    pub left: u64,
+    pub event: Option<String>,
+}
+
 /// Announces to every HTTP(S) tracker concurrently and returns the deduplicated
 /// union of returned peers. Best-effort: any tracker error just contributes no
 /// peers. UDP trackers are skipped — librqbit's own UDP tracker client handles
@@ -25,6 +38,26 @@ pub(crate) async fn gather_initial_peers(
     info_hash: [u8; 20],
     listen_port: u16,
 ) -> Vec<SocketAddr> {
+    let params = AnnounceParams {
+        info_hash,
+        peer_id: generated_peer_id(),
+        port: listen_port,
+        uploaded: 0,
+        downloaded: 0,
+        // left=1 (not 0): a zero "left" marks us as a seeder, which makes some
+        // trackers return fewer or zero peers.
+        left: 1,
+        event: Some("started".to_string()),
+    };
+    let peers = announce_all(trackers, &params).await;
+    if !peers.is_empty() {
+        tracing::info!(count = peers.len(), "gathered initial peers from HTTP trackers");
+    }
+    peers
+}
+
+/// Concurrent announce to all HTTP(S) trackers in the list with the given params.
+pub(crate) async fn announce_all(trackers: &[String], params: &AnnounceParams) -> Vec<SocketAddr> {
     let client = match reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(ANNOUNCE_TIMEOUT)
@@ -39,7 +72,7 @@ pub(crate) async fn gather_initial_peers(
         if !(tracker.starts_with("http://") || tracker.starts_with("https://")) {
             continue;
         }
-        let url = announce_url(tracker, &info_hash, listen_port);
+        let url = announce_url(tracker, params);
         let client = client.clone();
         tasks.push(tokio::spawn(async move {
             let response = client.get(&url).send().await.ok()?;
@@ -56,43 +89,54 @@ pub(crate) async fn gather_initial_peers(
     }
     peers.sort();
     peers.dedup();
-    if !peers.is_empty() {
-        tracing::info!(count = peers.len(), "gathered initial peers from HTTP trackers");
-    }
     peers
 }
 
-fn announce_url(tracker: &str, info_hash: &[u8; 20], listen_port: u16) -> String {
-    use std::fmt::Write;
-    let mut encoded_hash = String::with_capacity(60);
-    for b in info_hash {
-        let _ = write!(encoded_hash, "%{b:02x}");
-    }
+fn announce_url(tracker: &str, params: &AnnounceParams) -> String {
     let separator = if tracker.contains('?') { '&' } else { '?' };
-    // left=1 (not 0): a zero "left" marks us as a seeder, which makes some
-    // trackers return fewer or zero peers.
-    format!(
-        "{tracker}{separator}info_hash={encoded_hash}&peer_id={}&port={listen_port}\
-         &uploaded=0&downloaded=0&left=1&event=started&compact=1",
-        peer_id()
-    )
+    let mut url = format!(
+        "{tracker}{separator}info_hash={}&peer_id={}&port={}&uploaded={}&downloaded={}&left={}&compact=1",
+        percent_encode(&params.info_hash),
+        percent_encode(&params.peer_id),
+        params.port,
+        params.uploaded,
+        params.downloaded,
+        params.left,
+    );
+    if let Some(event) = &params.event {
+        url.push_str("&event=");
+        url.push_str(event);
+    }
+    url
+}
+
+fn percent_encode(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(bytes.len() * 3);
+    for b in bytes {
+        let _ = write!(s, "%{b:02x}");
+    }
+    s
 }
 
 // Azureus-style peer id: fixed client prefix + 12 URL-safe chars. Uniqueness only
 // needs to be good enough for tracker bookkeeping, so clock nanos suffice.
-fn peer_id() -> String {
+fn generated_peer_id() -> [u8; 20] {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("-BR0100-{:012x}", nanos & 0xffff_ffff_ffff)
+    let s = format!("-BR0100-{:012x}", nanos & 0xffff_ffff_ffff);
+    let mut id = [0u8; 20];
+    id.copy_from_slice(s.as_bytes());
+    id
 }
 
 // Extracts peers from a bencoded tracker response in compact form (BEP 23 "peers"
 // as 6-byte chunks, BEP 7 "peers6" as 18-byte chunks). compact=1 is requested and
 // honored by effectively all trackers; a non-compact (list-of-dicts) response
 // simply fails the length parse below and yields no peers.
-fn parse_compact_peers(body: &[u8]) -> Vec<SocketAddr> {
+pub(crate) fn parse_compact_peers(body: &[u8]) -> Vec<SocketAddr> {
     let mut out = Vec::new();
     if let Some(v4) = find_bencode_bytes(body, b"5:peers") {
         for c in v4.chunks_exact(6) {
@@ -173,11 +217,21 @@ mod tests {
 
     #[test]
     fn announce_url_shape() {
-        let url = announce_url("http://tr.example/ann", &[0xAB; 20], 6881);
+        let params = AnnounceParams {
+            info_hash: [0xAB; 20],
+            peer_id: generated_peer_id(),
+            port: 6881,
+            uploaded: 10,
+            downloaded: 20,
+            left: 1,
+            event: Some("started".to_string()),
+        };
+        let url = announce_url("http://tr.example/ann", &params);
         assert!(url.starts_with("http://tr.example/ann?info_hash=%ab%ab"));
         assert!(url.contains("&port=6881&"));
-        assert!(url.contains("&left=1&"));
+        assert!(url.contains("&uploaded=10&downloaded=20&left=1&"));
         assert!(url.contains("&compact=1"));
-        assert!(url.contains("peer_id=-BR0100-"));
+        assert!(url.contains("&event=started"));
+        assert!(url.contains("peer_id=%2d%42%52%30%31%30%30%2d")); // "-BR0100-" percent-encoded
     }
 }

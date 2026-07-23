@@ -6,6 +6,7 @@ pub use types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStats};
 mod announce;
 mod engine;
 mod storage;
+mod tracker_proxy;
 pub use engine::Engine;
 
 #[uniffi::export]

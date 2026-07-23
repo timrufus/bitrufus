@@ -4,11 +4,12 @@ use std::sync::{Arc, Mutex};
 
 use directories::ProjectDirs;
 use librqbit::{
-    AddTorrent, AddTorrentOptions, AddTorrentResponse, ByteBufOwned, Magnet, ManagedTorrent,
-    Session, SessionOptions, SessionPersistenceConfig, TorrentStatsState, torrent_from_bytes,
+    torrent_from_bytes, AddTorrent, AddTorrentOptions, AddTorrentResponse, ByteBufOwned, Magnet,
+    ManagedTorrent, Session, SessionOptions, SessionPersistenceConfig, TorrentStatsState,
 };
 
 use crate::storage::no_prealloc_factory;
+use crate::tracker_proxy::TrackerProxy;
 use crate::types::{EngineError, FileInfo, TorrentInfo, TorrentState, TorrentStats};
 
 type TorrentHandle = Arc<ManagedTorrent>;
@@ -58,6 +59,9 @@ pub struct Engine {
     session: Arc<Session>,
     download_dir: PathBuf,
     inner: Mutex<EngineInner>,
+    // Local announce proxy (see crate::tracker_proxy). Held for its lifetime only —
+    // dropping it stops the listener. None if it failed to start (degraded but usable).
+    _tracker_proxy: Option<TrackerProxy>,
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -79,6 +83,27 @@ impl Engine {
             .data_dir()
             .to_owned();
 
+        // Start the announce proxy before the session: its URL must be in the session's
+        // tracker list, and the session reference is wired back right after creation.
+        let tracker_proxy = match TrackerProxy::start().await {
+            Ok(p) => Some(p),
+            Err(e) => {
+                tracing::warn!(error = ?e, "tracker proxy failed to start; announces degraded");
+                None
+            }
+        };
+
+        let mut session_trackers: Vec<url::Url> = DEFAULT_UDP_TRACKERS
+            .iter()
+            .filter_map(|s| url::Url::parse(s).ok())
+            .collect();
+
+        if let Some(proxy) = &tracker_proxy {
+            if let Ok(u) = url::Url::parse(&proxy.announce_url()) {
+                session_trackers.push(u);
+            }
+        }
+
         let opts = SessionOptions {
             persistence: Some(SessionPersistenceConfig::Json {
                 folder: Some(persistence_folder),
@@ -95,10 +120,7 @@ impl Engine {
             // (no sparse-file support) don't freeze while zero-filling the whole file. See
             // crate::storage for the rationale.
             default_storage_factory: Some(no_prealloc_factory()),
-            trackers: DEFAULT_UDP_TRACKERS
-                .iter()
-                .filter_map(|s| url::Url::parse(s).ok())
-                .collect(),
+            trackers: session_trackers.into_iter().collect(),
             ..Default::default()
         };
 
@@ -109,6 +131,10 @@ impl Engine {
                 reason: format!("{e:#}"),
             })?;
 
+        if let Some(proxy) = &tracker_proxy {
+            proxy.set_session(&session);
+        }
+
         // Restore previously-persisted torrents. Pin each engine ID to
         // librqbit's own session ID (+ 1 to stay 1-based) so IDs remain
         // stable across restarts even after a torrent has been removed.
@@ -117,6 +143,7 @@ impl Engine {
 
         let mut map = HashMap::with_capacity(restored.len());
         let mut max_engine_id: u64 = 0;
+
         for (sid, h) in restored {
             let engine_id = sid as u64 + 1;
             map.insert(engine_id, h);
@@ -124,6 +151,7 @@ impl Engine {
                 max_engine_id = engine_id;
             }
         }
+
         let next_counter = max_engine_id + 1;
 
         Ok(Arc::new(Self {
@@ -135,6 +163,7 @@ impl Engine {
                 deleting: HashSet::new(),
                 next_id: next_counter,
             }),
+            _tracker_proxy: tracker_proxy,
         }))
     }
 
@@ -176,6 +205,7 @@ impl Engine {
                 ..Default::default()
             }),
         );
+
         let response = tokio::time::timeout(MAGNET_RESOLVE_TIMEOUT, add_future)
             .await
             .map_err(|_| EngineError::Backend {
@@ -206,8 +236,7 @@ impl Engine {
             .collect();
         let listen_port = self.session.tcp_listen_port().unwrap_or(6881);
         let initial_peers =
-            crate::announce::gather_initial_peers(&trackers, parsed.info_hash.0, listen_port)
-                .await;
+            crate::announce::gather_initial_peers(&trackers, parsed.info_hash.0, listen_port).await;
 
         let response = self
             .session
@@ -242,13 +271,16 @@ impl Engine {
 
         let (handle, add_time) = {
             let inner = self.inner.lock().expect("inner lock poisoned");
-            let h = inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?;
+            let h = inner
+                .handles
+                .get(&id)
+                .cloned()
+                .ok_or(EngineError::NotFound { id })?;
             let t = inner.add_times.get(&id).copied();
             (h, t)
         };
 
-        let only_files: HashSet<usize> =
-            selected_indexes.into_iter().map(|i| i as usize).collect();
+        let only_files: HashSet<usize> = selected_indexes.into_iter().map(|i| i as usize).collect();
 
         // A freshly-added torrent (even one added paused) transitions through
         // Initializing (file integrity check / allocation) before settling into Paused.
@@ -262,11 +294,14 @@ impl Engine {
         self.session
             .update_only_files(&handle, &only_files)
             .await
-            .map_err(|e| EngineError::Backend { reason: e.to_string() })?;
+            .map_err(|e| EngineError::Backend {
+                reason: e.to_string(),
+            })?;
 
         // Remove files that are no longer selected so they don't linger on disk as
         // pre-allocated stubs created during librqbit's initialization phase.
-        self.delete_non_selected_files(&handle, &only_files, add_time).await;
+        self.delete_non_selected_files(&handle, &only_files, add_time)
+            .await;
 
         // Unpause unconditionally; if a concurrent set_file_selection call already
         // unpaused the torrent the "already live" error is benign — selection was applied.
@@ -278,15 +313,26 @@ impl Engine {
         // concurrent add/remove callers are not blocked for the full iteration.
         let snapshot: Vec<(u64, TorrentHandle)> = {
             let inner = self.inner.lock().expect("inner lock poisoned");
-            inner.handles.iter().map(|(&id, h)| (id, h.clone())).collect()
+            inner
+                .handles
+                .iter()
+                .map(|(&id, h)| (id, h.clone()))
+                .collect()
         };
-        snapshot.into_iter().map(|(id, handle)| stats_from_handle(id, &handle)).collect()
+        snapshot
+            .into_iter()
+            .map(|(id, handle)| stats_from_handle(id, &handle))
+            .collect()
     }
 
     pub async fn pause(&self, id: u64) -> Result<(), EngineError> {
         let handle = {
             let inner = self.inner.lock().expect("inner lock poisoned");
-            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            inner
+                .handles
+                .get(&id)
+                .cloned()
+                .ok_or(EngineError::NotFound { id })?
         };
         match self.session.pause(&handle).await {
             Ok(()) => Ok(()),
@@ -298,14 +344,20 @@ impl Engine {
             // would swallow real errors. Real failures (e.g. "can't pause initializing
             // torrent") leave the state unchanged and still propagate.
             Err(_) if matches!(handle.stats().state, TorrentStatsState::Paused) => Ok(()),
-            Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
+            Err(e) => Err(EngineError::Backend {
+                reason: e.to_string(),
+            }),
         }
     }
 
     pub async fn resume(&self, id: u64) -> Result<(), EngineError> {
         let handle = {
             let inner = self.inner.lock().expect("inner lock poisoned");
-            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            inner
+                .handles
+                .get(&id)
+                .cloned()
+                .ok_or(EngineError::NotFound { id })?
         };
         self.unpause_idempotent(&handle).await
     }
@@ -318,7 +370,11 @@ impl Engine {
         // fresh engine ID that would become a zombie once the delete completes.
         let (librqbit_id, handle, add_time) = {
             let mut inner = self.inner.lock().expect("inner lock poisoned");
-            let h = inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?;
+            let h = inner
+                .handles
+                .get(&id)
+                .cloned()
+                .ok_or(EngineError::NotFound { id })?;
             let librqbit_id = h.id();
             inner.handles.remove(&id);
             let t = inner.add_times.remove(&id);
@@ -327,9 +383,14 @@ impl Engine {
         };
         let result = self
             .session
-            .delete(librqbit::api::TorrentIdOrHash::Id(librqbit_id), delete_files)
+            .delete(
+                librqbit::api::TorrentIdOrHash::Id(librqbit_id),
+                delete_files,
+            )
             .await
-            .map_err(|e| EngineError::Backend { reason: e.to_string() });
+            .map_err(|e| EngineError::Backend {
+                reason: e.to_string(),
+            });
         let mut inner = self.inner.lock().expect("inner lock poisoned");
         inner.deleting.remove(&librqbit_id);
         if result.is_err() {
@@ -349,7 +410,11 @@ impl Engine {
         // concurrent add/remove callers are not blocked for the full iteration.
         let snapshot: Vec<(u64, TorrentHandle)> = {
             let inner = self.inner.lock().expect("inner lock poisoned");
-            inner.handles.iter().map(|(&id, h)| (id, h.clone())).collect()
+            inner
+                .handles
+                .iter()
+                .map(|(&id, h)| (id, h.clone()))
+                .collect()
         };
         let mut result: Vec<TorrentInfo> = snapshot
             .into_iter()
@@ -369,7 +434,11 @@ impl Engine {
     pub fn torrent_info(&self, id: u64) -> Result<TorrentInfo, EngineError> {
         let handle = {
             let inner = self.inner.lock().expect("inner lock poisoned");
-            inner.handles.get(&id).cloned().ok_or(EngineError::NotFound { id })?
+            inner
+                .handles
+                .get(&id)
+                .cloned()
+                .ok_or(EngineError::NotFound { id })?
         };
         Ok(TorrentInfo {
             id,
@@ -456,6 +525,7 @@ fn stats_from_handle(id: u64, handle: &TorrentHandle) -> TorrentStats {
         download_speed_bps,
         upload_speed_bps,
         peer_count,
+        error_message: rq.error,
     }
 }
 
@@ -501,8 +571,10 @@ impl Engine {
                     reason: "torrent is currently being deleted".to_string(),
                 });
             }
-            let existing =
-                inner.handles.iter().find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
+            let existing = inner
+                .handles
+                .iter()
+                .find_map(|(&id, eh)| Arc::ptr_eq(eh, &h).then_some(id));
             let id = if let Some(id) = existing {
                 id
             } else {
@@ -560,7 +632,9 @@ impl Engine {
         match self.session.unpause(handle).await {
             Ok(()) => Ok(()),
             Err(_) if matches!(handle.stats().state, TorrentStatsState::Live) => Ok(()),
-            Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
+            Err(e) => Err(EngineError::Backend {
+                reason: e.to_string(),
+            }),
         }
     }
 
@@ -707,6 +781,7 @@ mod tests {
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
+            _tracker_proxy: None,
         })
     }
 
@@ -726,7 +801,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
         let result = engine.add_magnet("garbage://link".to_string()).await;
-        assert!(result.is_err(), "expected error for invalid magnet, got {:?}", result);
+        assert!(
+            result.is_err(),
+            "expected error for invalid magnet, got {:?}",
+            result
+        );
         assert_eq!(
             engine.inner.lock().expect("lock").handles.len(),
             0,
@@ -740,7 +819,10 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
         let result = engine.set_file_selection(999, vec![]).await;
-        assert!(result.is_ok(), "empty selection must be a no-op regardless of id");
+        assert!(
+            result.is_ok(),
+            "empty selection must be a no-op regardless of id"
+        );
     }
 
     #[tokio::test]
@@ -786,7 +868,10 @@ mod tests {
         // Duplicate indexes must not cause the empty guard to fire; the id lookup must run.
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
-        let err = engine.set_file_selection(77, vec![0, 0, 0]).await.unwrap_err();
+        let err = engine
+            .set_file_selection(77, vec![0, 0, 0])
+            .await
+            .unwrap_err();
         assert!(matches!(err, EngineError::NotFound { id: 77 }));
     }
 
@@ -808,7 +893,10 @@ mod tests {
     async fn corrupt_torrent_bytes_returns_invalid_torrent() {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
-        let err = engine.add_torrent_file(b"not a torrent".to_vec()).await.unwrap_err();
+        let err = engine
+            .add_torrent_file(b"not a torrent".to_vec())
+            .await
+            .unwrap_err();
         assert!(matches!(err, EngineError::InvalidTorrent { .. }));
     }
 
@@ -816,9 +904,18 @@ mod tests {
     async fn valid_torrent_file_returns_torrent_info() {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
-        let info = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
-        assert_eq!(info.name, "test.txt", "name must match the info dict name field");
-        assert!(info.total_bytes > 0, "total_bytes must be populated immediately from .torrent");
+        let info = engine
+            .add_torrent_file(minimal_torrent_bytes())
+            .await
+            .unwrap();
+        assert_eq!(
+            info.name, "test.txt",
+            "name must match the info dict name field"
+        );
+        assert!(
+            info.total_bytes > 0,
+            "total_bytes must be populated immediately from .torrent"
+        );
     }
 
     // Regression for the "storages other than FilesystemStorageFactory are not supported"
@@ -854,6 +951,7 @@ mod tests {
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
+            _tracker_proxy: None,
         });
 
         let info = engine
@@ -867,9 +965,18 @@ mod tests {
     async fn duplicate_torrent_file_returns_same_id() {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
-        let info1 = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
-        let info2 = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
-        assert_eq!(info1.id, info2.id, "duplicate add must return the same engine id");
+        let info1 = engine
+            .add_torrent_file(minimal_torrent_bytes())
+            .await
+            .unwrap();
+        let info2 = engine
+            .add_torrent_file(minimal_torrent_bytes())
+            .await
+            .unwrap();
+        assert_eq!(
+            info1.id, info2.id,
+            "duplicate add must return the same engine id"
+        );
         assert_eq!(
             engine.inner.lock().unwrap().handles.len(),
             1,
@@ -883,7 +990,10 @@ mod tests {
     async fn add_torrent_file_blocked_during_delete() {
         let dir = TempDir::new().unwrap();
         let engine = make_test_engine(dir.path()).await;
-        let info = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap();
+        let info = engine
+            .add_torrent_file(minimal_torrent_bytes())
+            .await
+            .unwrap();
 
         // Simulate an in-flight deletion by inserting the librqbit session ID into deleting.
         let librqbit_id = {
@@ -894,7 +1004,10 @@ mod tests {
 
         // A second add of the same bytes returns AlreadyManaged, which then hits the
         // deleting check and must return a Backend error rather than a zombie handle.
-        let err = engine.add_torrent_file(minimal_torrent_bytes()).await.unwrap_err();
+        let err = engine
+            .add_torrent_file(minimal_torrent_bytes())
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, EngineError::Backend { .. }),
             "expected Backend error for add-during-delete, got {err:?}"
@@ -930,14 +1043,19 @@ mod tests {
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
+            _tracker_proxy: None,
         });
         let magnet1 =
             "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
-        let magnet2 =
-            "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel";
+        let magnet2 = "magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10&dn=Sintel";
         let info1 = engine.add_magnet(magnet1.to_string()).await.unwrap();
         let info2 = engine.add_magnet(magnet2.to_string()).await.unwrap();
-        assert!(info2.id > info1.id, "second add must get a higher id than first (got {} then {})", info1.id, info2.id);
+        assert!(
+            info2.id > info1.id,
+            "second add must get a higher id than first (got {} then {})",
+            info1.id,
+            info2.id
+        );
     }
 
     // Exercises the production map_torrent_state function for every (state, finished) pair
@@ -945,8 +1063,16 @@ mod tests {
     #[test]
     fn state_mapping_correctness() {
         let cases: &[(TorrentStatsState, bool, TorrentState)] = &[
-            (TorrentStatsState::Initializing, false, TorrentState::Initializing),
-            (TorrentStatsState::Initializing, true, TorrentState::Initializing),
+            (
+                TorrentStatsState::Initializing,
+                false,
+                TorrentState::Initializing,
+            ),
+            (
+                TorrentStatsState::Initializing,
+                true,
+                TorrentState::Initializing,
+            ),
             (TorrentStatsState::Paused, false, TorrentState::Paused),
             (TorrentStatsState::Paused, true, TorrentState::Paused),
             (TorrentStatsState::Live, false, TorrentState::Downloading),
@@ -1012,11 +1138,15 @@ mod tests {
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
+            _tracker_proxy: None,
         });
 
         let magnet =
             "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
-        let info = engine.add_magnet(magnet.to_string()).await.expect("add_magnet");
+        let info = engine
+            .add_magnet(magnet.to_string())
+            .await
+            .expect("add_magnet");
         assert_eq!(engine.inner.lock().unwrap().handles.len(), 1);
 
         engine.remove(info.id, false).await.expect("remove");
@@ -1076,10 +1206,13 @@ mod tests {
         .await
         .expect("restore session creation");
 
-        let restored: Vec<usize> =
-            session.with_torrents(|iter| iter.map(|(sid, _)| sid).collect());
+        let restored: Vec<usize> = session.with_torrents(|iter| iter.map(|(sid, _)| sid).collect());
         // Empty persistence → empty restore; the important thing is no panic and no race.
-        assert_eq!(restored.len(), 0, "fresh persistence dir must restore zero torrents");
+        assert_eq!(
+            restored.len(),
+            0,
+            "fresh persistence dir must restore zero torrents"
+        );
     }
 
     // Exercises the full file-listing and selection path against a live session.
@@ -1107,12 +1240,16 @@ mod tests {
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
+            _tracker_proxy: None,
         });
 
         // Big Buck Bunny — a well-known multi-file torrent used for live tests.
         let magnet =
             "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny";
-        let info = engine.add_magnet(magnet.to_string()).await.expect("add_magnet");
+        let info = engine
+            .add_magnet(magnet.to_string())
+            .await
+            .expect("add_magnet");
 
         // Wait up to 30 s for metadata resolution (DHT peer discovery can be slow).
         let files = {
@@ -1128,10 +1265,16 @@ mod tests {
             }
             resolved
         };
-        assert!(!files.is_empty(), "metadata must resolve within 30 s on a live network");
+        assert!(
+            !files.is_empty(),
+            "metadata must resolve within 30 s on a live network"
+        );
 
         // Before any selection filter, all files report selected=true.
-        assert!(files.iter().all(|f| f.selected), "all files selected before any filter");
+        assert!(
+            files.iter().all(|f| f.selected),
+            "all files selected before any filter"
+        );
 
         // Select only the first file.
         engine
@@ -1140,7 +1283,9 @@ mod tests {
             .expect("set_file_selection");
 
         // The listing must reflect the new selection state.
-        let files_after = engine.torrent_files(info.id).expect("torrent_files after selection");
+        let files_after = engine
+            .torrent_files(info.id)
+            .expect("torrent_files after selection");
         assert!(
             files_after.len() > 1,
             "Big Buck Bunny must have >1 file for selection test to be meaningful"
@@ -1181,12 +1326,25 @@ mod tests {
                 deleting: HashSet::new(),
                 next_id: 1,
             }),
+            _tracker_proxy: None,
         });
-        let info = engine.add_torrent_file(minimal_torrent_bytes()).await.expect("add");
-        let handle = engine.inner.lock().unwrap().handles.get(&info.id).unwrap().clone();
+        let info = engine
+            .add_torrent_file(minimal_torrent_bytes())
+            .await
+            .expect("add");
+        let handle = engine
+            .inner
+            .lock()
+            .unwrap()
+            .handles
+            .get(&info.id)
+            .unwrap()
+            .clone();
         engine.wait_until_left_initializing(&handle).await.ok();
         // minimal_torrent_bytes names the single file "test.txt" with length 1024.
-        std::fs::metadata(dir.path().join("test.txt")).map(|m| m.len()).unwrap_or(0)
+        std::fs::metadata(dir.path().join("test.txt"))
+            .map(|m| m.len())
+            .unwrap_or(0)
     }
 
     #[tokio::test]

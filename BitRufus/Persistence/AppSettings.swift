@@ -4,6 +4,11 @@ final class AppSettings {
     static let shared = AppSettings()
     private let bookmarkKey = "downloadDirBookmark"
     private let pathKey = "downloadDirPath"
+    // The URL whose security-scoped access is currently active. Access must be started
+    // after every bookmark resolve (not just when saving) and kept for the app's
+    // lifetime — otherwise the sandbox silently denies writes to folders outside
+    // ~/Downloads on the next launch and torrents there fail with storage errors.
+    private var activeScopedURL: URL?
 
     var downloadDirectory: URL {
         if let data = UserDefaults.standard.data(forKey: bookmarkKey),
@@ -44,6 +49,21 @@ final class AppSettings {
             relativeTo: nil,
             bookmarkDataIsStale: &stale
         ) else { return nil }
+        if activeScopedURL != url {
+            activeScopedURL?.stopAccessingSecurityScopedResource()
+            guard url.startAccessingSecurityScopedResource() else {
+                activeScopedURL = nil
+                return nil
+            }
+            activeScopedURL = url
+        }
+        if stale, let fresh = try? url.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) {
+            UserDefaults.standard.set(fresh, forKey: bookmarkKey)
+        }
         return url
     }
 }

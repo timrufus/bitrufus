@@ -565,10 +565,13 @@ struct TorrentRow: View {
                     .fontWeight(.medium)
                     .foregroundStyle(.green)
             case .error:
-                Text("Error")
+                Text(stats.errorMessage.map { "Error · \($0)" } ?? "Error")
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundStyle(.red)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(stats.errorMessage ?? "Error")
             case .initializing:
                 sizeText
             }
