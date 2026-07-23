@@ -1,6 +1,8 @@
 [package]
 name = "bitrufus_core"
-version = "0.1.0"
+# Kept in sync with MARKETING_VERSION in BitRufus.xcodeproj — this version is what
+# announce.rs sends as the User-Agent ("BitRufus/<version>") to HTTP trackers.
+version = "1.4.0"
 edition = "2021"
 
 [lib]
@@ -17,6 +19,13 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 thiserror = "2"
 librqbit = "8.1.1"
 directories = "6"
+# Both already in librqbit's dependency tree — used for the manual tracker announce
+# (announce.rs) and session-level default tracker URLs. default-features off to match
+# librqbit's reqwest feature set: reqwest's default "system-proxy" pulls macOS
+# SystemConfiguration symbols the Xcode link step doesn't provide; TLS support still
+# arrives via librqbit's default "default-tls" feature (reqwest/default-tls).
+reqwest = { version = "0.12", default-features = false }
+url = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

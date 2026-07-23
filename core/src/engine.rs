@@ -28,6 +28,18 @@ const MAGNET_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 // called during that window.
 const INIT_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
+// Session-wide fallback trackers, merged by librqbit into peer discovery for every
+// non-private torrent (private torrents keep only their own tracker). Deliberately
+// UDP-only: librqbit's HTTP announces are rejected by some trackers because its
+// HTTP client sends no User-Agent (see crate::announce), while its UDP tracker
+// client speaks the binary BEP 15 protocol where no such header exists.
+const DEFAULT_UDP_TRACKERS: &[&str] = &[
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://explodie.org:6969/announce",
+];
+
 struct EngineInner {
     handles: HashMap<u64, TorrentHandle>,
     // Records when each torrent was added so delete_non_selected_files can verify that
@@ -83,6 +95,10 @@ impl Engine {
             // (no sparse-file support) don't freeze while zero-filling the whole file. See
             // crate::storage for the rationale.
             default_storage_factory: Some(no_prealloc_factory()),
+            trackers: DEFAULT_UDP_TRACKERS
+                .iter()
+                .filter_map(|s| url::Url::parse(s).ok())
+                .collect(),
             ..Default::default()
         };
 
@@ -128,14 +144,20 @@ impl Engine {
         })?;
 
         // Reject BTv2-only magnet links before they reach the session.
-        if parsed.as_id20().is_none() {
-            return Err(EngineError::InvalidMagnet {
-                reason: "magnet link missing BTv1 infohash".to_string(),
-            });
-        }
+        let id20 = parsed.as_id20().ok_or_else(|| EngineError::InvalidMagnet {
+            reason: "magnet link missing BTv1 infohash".to_string(),
+        })?;
 
         // Capture the display name from dn= before the add consumes parsed.
         let dn = parsed.name.clone();
+
+        // Announce to the magnet's HTTP trackers ourselves and seed the add with the
+        // returned peers (see crate::announce for why librqbit's own announce is not
+        // enough). These peers both speed up metadata resolution and are reused by
+        // librqbit on every subsequent unpause.
+        let listen_port = self.session.tcp_listen_port().unwrap_or(6881);
+        let initial_peers =
+            crate::announce::gather_initial_peers(&parsed.trackers, id20.0, listen_port).await;
 
         // librqbit's add_torrent blocks until magnet metadata is resolved from
         // peers/DHT/trackers (paused does not skip this). A magnet with no reachable
@@ -150,6 +172,7 @@ impl Engine {
                 // persisted torrents (into_add_torrent sets overwrite: true) and how other
                 // clients resume; pieces are hash-checked, so existing data is not clobbered.
                 overwrite: true,
+                initial_peers: (!initial_peers.is_empty()).then_some(initial_peers),
                 ..Default::default()
             }),
         );
@@ -169,9 +192,23 @@ impl Engine {
 
     pub async fn add_torrent_file(&self, bytes: Vec<u8>) -> Result<TorrentInfo, EngineError> {
         // Pre-validate so parse failures map to InvalidTorrent and session failures map to Backend.
-        torrent_from_bytes::<ByteBufOwned>(&bytes).map_err(|e| EngineError::InvalidTorrent {
-            reason: e.to_string(),
+        let parsed = torrent_from_bytes::<ByteBufOwned>(&bytes).map_err(|e| {
+            EngineError::InvalidTorrent {
+                reason: e.to_string(),
+            }
         })?;
+
+        // Same manual HTTP announce as add_magnet (see crate::announce): seed the add
+        // with peers from the .torrent's announce list, reused on every unpause.
+        let trackers: Vec<String> = parsed
+            .iter_announce()
+            .map(|t| String::from_utf8_lossy(&t.0).into_owned())
+            .collect();
+        let listen_port = self.session.tcp_listen_port().unwrap_or(6881);
+        let initial_peers =
+            crate::announce::gather_initial_peers(&trackers, parsed.info_hash.0, listen_port)
+                .await;
+
         let response = self
             .session
             .add_torrent(
@@ -182,6 +219,7 @@ impl Engine {
                     // (e.g. re-adding a torrent whose data is already partly downloaded).
                     // Same setting librqbit uses when restoring persisted torrents.
                     overwrite: true,
+                    initial_peers: (!initial_peers.is_empty()).then_some(initial_peers),
                     ..Default::default()
                 }),
             )
@@ -253,11 +291,13 @@ impl Engine {
         match self.session.pause(&handle).await {
             Ok(()) => Ok(()),
             // librqbit reports "already paused" as a plain (string-only) anyhow error.
-            // Rather than match on that unstable message, confirm the desired end-state:
-            // if the torrent is now paused the call was effectively a no-op success. Real
-            // failures (e.g. "can't pause initializing torrent") leave it unpaused and
-            // still propagate.
-            Err(_) if handle.is_paused() => Ok(()),
+            // Rather than match on that unstable message, confirm the desired end-state
+            // via the actual torrent state. Deliberately NOT handle.is_paused(): that
+            // reads the pause *intent* flag, which librqbit flips optimistically before
+            // attempting the transition — after a failure it reports the wrong value and
+            // would swallow real errors. Real failures (e.g. "can't pause initializing
+            // torrent") leave the state unchanged and still propagate.
+            Err(_) if matches!(handle.stats().state, TorrentStatsState::Paused) => Ok(()),
             Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
         }
     }
@@ -510,12 +550,16 @@ impl Engine {
 
     // Calls session.unpause idempotently. librqbit returns a plain (string-only) anyhow
     // error ("torrent is already live") when unpause is called on a running torrent; rather
-    // than match that unstable message, we confirm via state — if the torrent ended up
-    // unpaused the call effectively succeeded. Real failures leave it paused and propagate.
+    // than match that unstable message, we confirm via the actual torrent state — if the
+    // torrent is Live the call effectively succeeded. Deliberately NOT handle.is_paused():
+    // that reads the pause *intent* flag, which librqbit's start() flips to false before
+    // attempting the transition, so after a failed unpause it reports "not paused" and
+    // would silently swallow the error. Real failures leave the state non-Live and
+    // propagate.
     async fn unpause_idempotent(&self, handle: &TorrentHandle) -> Result<(), EngineError> {
         match self.session.unpause(handle).await {
             Ok(()) => Ok(()),
-            Err(_) if !handle.is_paused() => Ok(()),
+            Err(_) if matches!(handle.stats().state, TorrentStatsState::Live) => Ok(()),
             Err(e) => Err(EngineError::Backend { reason: e.to_string() }),
         }
     }
