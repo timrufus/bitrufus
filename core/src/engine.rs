@@ -138,8 +138,30 @@ impl Engine {
         // Restore previously-persisted torrents. Pin each engine ID to
         // librqbit's own session ID (+ 1 to stay 1-based) so IDs remain
         // stable across restarts even after a torrent has been removed.
-        let restored: Vec<(usize, TorrentHandle)> =
+        let mut restored: Vec<(usize, TorrentHandle)> =
             session.with_torrents(|iter| iter.map(|(sid, h)| (sid, h.clone())).collect());
+
+        // Prune duplicate entries sharing an info_hash — a historical remove/persistence
+        // race (crash between the session-db removal and the persistence removal) can
+        // resurrect a removed torrent next to its re-added copy. Keep the entry the user
+        // actually configured (has a file selection; newer session id on a tie), delete
+        // the ghosts from the session without touching files. A ghost whose delete fails
+        // stays visible so it remains manageable from the UI.
+        let ghost_sids = duplicate_session_ids(
+            &restored
+                .iter()
+                .map(|(sid, h)| (h.info_hash(), h.only_files().is_some(), *sid))
+                .collect::<Vec<_>>(),
+        );
+        for &sid in &ghost_sids {
+            tracing::warn!(sid, "removing duplicate session entry with same info_hash");
+            match session.delete(librqbit::api::TorrentIdOrHash::Id(sid), false).await {
+                Ok(()) => restored.retain(|(s, _)| *s != sid),
+                Err(e) => {
+                    tracing::warn!(sid, error = ?e, "failed to remove duplicate session entry")
+                }
+            }
+        }
 
         let mut map = HashMap::with_capacity(restored.len());
         let mut max_engine_id: u64 = 0;
@@ -503,6 +525,29 @@ fn init_logging() {
     });
 }
 
+// Given (info_hash, has_file_selection, session_id) for every restored torrent, returns
+// the session ids of duplicate entries to delete. Within each info_hash group the entry
+// with a file selection wins (the one the user configured); ties go to the higher
+// (newer) session id.
+fn duplicate_session_ids(entries: &[(librqbit::dht::Id20, bool, usize)]) -> Vec<usize> {
+    let mut best: HashMap<librqbit::dht::Id20, (bool, usize)> = HashMap::new();
+    for &(hash, has_selection, sid) in entries {
+        let score = (has_selection, sid);
+        best.entry(hash)
+            .and_modify(|cur| {
+                if score > *cur {
+                    *cur = score;
+                }
+            })
+            .or_insert(score);
+    }
+    entries
+        .iter()
+        .filter(|&&(hash, has_selection, sid)| best[&hash] != (has_selection, sid))
+        .map(|&(_, _, sid)| sid)
+        .collect()
+}
+
 fn stats_from_handle(id: u64, handle: &TorrentHandle) -> TorrentStats {
     let rq = handle.stats();
     let state = map_torrent_state(rq.state, rq.finished);
@@ -719,27 +764,8 @@ impl Engine {
         };
         tokio::task::spawn_blocking(move || {
             for (path, expected_len) in paths {
-                // Only remove the file if:
-                // 1. declared size > 0 (avoids matching arbitrary empty files)
-                // 2. on-disk size matches the torrent-declared length (pre-allocation marker)
-                // 3. mtime is not newer than when add_magnet was called, which would indicate
-                //    the file was written externally after librqbit created the stub
                 let is_stub = std::fs::metadata(&path)
-                    .map(|m| {
-                        if m.len() != expected_len || expected_len == 0 {
-                            return false;
-                        }
-                        if let Some(add_t) = add_time {
-                            // Allow a 2-second buffer for filesystem clock resolution and any
-                            // delay between librqbit's file creation and when we captured add_time.
-                            let cutoff = add_t + std::time::Duration::from_secs(2);
-                            m.modified().map(|mtime| mtime <= cutoff).unwrap_or(false)
-                        } else {
-                            // No add_time means this is a restored session torrent; skip
-                            // speculative deletion to avoid removing pre-existing files.
-                            false
-                        }
-                    })
+                    .map(|m| is_deletable_stub(&m, expected_len, add_time))
                     .unwrap_or(false);
                 if is_stub {
                     let _ = std::fs::remove_file(&path);
@@ -748,6 +774,37 @@ impl Engine {
         })
         .await
         .ok();
+    }
+}
+
+// Decides whether an on-disk file is a stub created during librqbit's initialization
+// and safe to delete. Only remove the file if:
+// 1. declared size > 0 (avoids matching arbitrary empty files)
+// 2. on-disk size is 0 (the no-prealloc backend creates files empty and grows them as
+//    pieces arrive) or exactly the torrent-declared length (a legacy fully-preallocated
+//    stub); a partial or differing size means real data we did not create
+// 3. mtime is not newer than when the add was initiated, which would indicate the file
+//    was written externally after librqbit created the stub
+fn is_deletable_stub(
+    meta: &std::fs::Metadata,
+    expected_len: u64,
+    add_time: Option<std::time::SystemTime>,
+) -> bool {
+    if expected_len == 0 {
+        return false;
+    }
+    if meta.len() != 0 && meta.len() != expected_len {
+        return false;
+    }
+    if let Some(add_t) = add_time {
+        // Allow a 2-second buffer for filesystem clock resolution and any delay
+        // between librqbit's file creation and when we captured add_time.
+        let cutoff = add_t + std::time::Duration::from_secs(2);
+        meta.modified().map(|mtime| mtime <= cutoff).unwrap_or(false)
+    } else {
+        // No add_time means this is a restored session torrent; skip speculative
+        // deletion to avoid removing pre-existing files.
+        false
     }
 }
 
@@ -1087,6 +1144,51 @@ mod tests {
                 "state={state:?} finished={finished}"
             );
         }
+    }
+
+    #[test]
+    fn is_deletable_stub_predicate() {
+        use std::time::SystemTime;
+        let dir = TempDir::new().unwrap();
+        let write = |name: &str, len: usize| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, vec![0u8; len]).unwrap();
+            std::fs::metadata(&p).unwrap()
+        };
+        let now = SystemTime::now();
+        let declared: u64 = 1024;
+
+        // 0-byte file: the no-prealloc backend's stub — deletable.
+        assert!(is_deletable_stub(&write("empty", 0), declared, Some(now)));
+        // Fully-preallocated stub (legacy default backend) — deletable.
+        assert!(is_deletable_stub(&write("full", 1024), declared, Some(now)));
+        // Partial size: real data we did not create — never deleted.
+        assert!(!is_deletable_stub(&write("partial", 512), declared, Some(now)));
+        // Declared size 0 must never match, even a 0-byte file.
+        assert!(!is_deletable_stub(&write("zero_decl", 0), 0, Some(now)));
+        // File modified after the add (mtime beyond the 2 s buffer) — never deleted.
+        let old_add = now - Duration::from_secs(60);
+        assert!(!is_deletable_stub(&write("modified", 0), declared, Some(old_add)));
+        // Restored torrent (no add_time) — never deleted.
+        assert!(!is_deletable_stub(&write("restored", 0), declared, None));
+    }
+
+    #[test]
+    fn duplicate_session_ids_keeps_configured_entry() {
+        use librqbit::dht::Id20;
+        let a = Id20::new([1u8; 20]);
+        let b = Id20::new([2u8; 20]);
+        // Real-world shape: sid 0 has a selection, sid 1 is the ghost without one.
+        let ghosts = duplicate_session_ids(&[(a, true, 0), (a, false, 1), (b, true, 2)]);
+        assert_eq!(ghosts, vec![1]);
+        // Tie on selection → keep the newer (higher) sid.
+        let ghosts = duplicate_session_ids(&[(a, false, 0), (a, false, 1)]);
+        assert_eq!(ghosts, vec![0]);
+        let ghosts = duplicate_session_ids(&[(a, true, 5), (a, true, 3)]);
+        assert_eq!(ghosts, vec![3]);
+        // No duplicates → nothing to delete.
+        assert!(duplicate_session_ids(&[(a, true, 0), (b, false, 1)]).is_empty());
+        assert!(duplicate_session_ids(&[]).is_empty());
     }
 
     #[tokio::test]
