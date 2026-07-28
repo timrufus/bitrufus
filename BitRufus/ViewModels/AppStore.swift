@@ -94,16 +94,18 @@ final class AppStore: ObservableObject {
         setPolling(active: active)
     }
 
-    // Starts or stops the 0.5 s stats-polling loop. Call with active: true when the
-    // scene becomes .active and active: false when it goes .inactive/.background so the
-    // thread can truly idle rather than just no-op inside the loop. Always cancels any
-    // existing task before starting a new one, so rapid toggles are safe.
+    // Runs the stats-polling loop: 0.5 s while the scene is active, 5 s otherwise.
+    // The slow background cadence keeps completion detection (and the "download
+    // finished" notification) working while the window is closed, at negligible cost —
+    // refreshStats is one FFI snapshot and updateStats no-ops on unchanged values.
+    // Always cancels any existing task before starting a new one, so rapid toggles
+    // are safe.
     func setPolling(active: Bool) {
         statsPollingTask?.cancel()
         statsPollingTask = nil
-        guard active else { return }
+        let interval = active ? 0.5 : 5.0
         statsPollingTask = Task { [weak self] in
-            for await _ in Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().values {
+            for await _ in Timer.publish(every: interval, on: .main, in: .common).autoconnect().values {
                 guard let self else { return }
                 self.refreshStats()
             }
@@ -287,7 +289,19 @@ final class AppStore: ObservableObject {
         let statsMap = Dictionary(uniqueKeysWithValues: engine.allStats().map { ($0.id, $0) })
         for vm in torrents {
             if let s = statsMap[vm.id] {
+                // Downloading -> Seeding is the completion transition (librqbit flips
+                // `finished` once the last selected piece verifies). Torrents restored
+                // already finished start out seeding and never pass through
+                // .downloading here, so launch never fires spurious notifications.
+                let wasDownloading = vm.stats?.state == .downloading
                 vm.updateStats(s)
+                if wasDownloading && s.state == .seeding {
+                    // Same path convention as TorrentRow.showInFinder: librqbit places
+                    // a multi-file torrent in a subfolder named after the torrent and a
+                    // single file under its own name.
+                    let path = downloadDirectory.appendingPathComponent(vm.info.name).path
+                    DownloadNotifier.shared.notifyDownloadFinished(name: vm.info.name, path: path)
+                }
             }
         }
     }

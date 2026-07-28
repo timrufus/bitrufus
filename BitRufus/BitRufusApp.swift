@@ -12,6 +12,12 @@ struct BitRufusApp: App {
     @StateObject private var store = AppStore()
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        // Delegate must be installed before launch finishes so clicks on a
+        // notification are handled even when they relaunch the app.
+        DownloadNotifier.shared.activate()
+    }
+
     var body: some Scene {
         WindowGroup {
             TorrentListView()

@@ -22,6 +22,7 @@
 		AA1B000B2FC24F99005F76AA /* DiskSpacePopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B000C2FC24F99005F76AA /* DiskSpacePopover.swift */; };
 		BB2C00032FC24F99005F76BB /* TorrentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C00022FC24F99005F76BB /* TorrentStore.swift */; };
 		CC3D00022FC24F99005F76CC /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3D00012FC24F99005F76CC /* AppSettings.swift */; };
+		DD4E00022FC24F99005F76DD /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD4E00012FC24F99005F76DD /* Notifications.swift */; };
 		CC3D00042FC24F99005F76CC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC3D00032FC24F99005F76CC /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
@@ -64,6 +65,7 @@
 		AA1B000C2FC24F99005F76AA /* DiskSpacePopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskSpacePopover.swift; sourceTree = "<group>"; };
 		BB2C00022FC24F99005F76BB /* TorrentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentStore.swift; sourceTree = "<group>"; };
 		CC3D00012FC24F99005F76CC /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		DD4E00012FC24F99005F76DD /* Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notifications.swift; sourceTree = "<group>"; };
 		CC3D00032FC24F99005F76CC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -117,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				226E4A482FC24F99005F76BD /* BitRufusApp.swift */,
+				DD4E00012FC24F99005F76DD /* Notifications.swift */,
 				226E4A4A2FC24F99005F76BD /* ContentView.swift */,
 				226E4A4C2FC24F9A005F76BD /* Assets.xcassets */,
 				226E4A512FC24F9A005F76BD /* BitRufus.entitlements */,
@@ -375,6 +378,7 @@
 			files = (
 				226E4A4B2FC24F99005F76BD /* ContentView.swift in Sources */,
 				226E4A492FC24F99005F76BD /* BitRufusApp.swift in Sources */,
+				DD4E00022FC24F99005F76DD /* Notifications.swift in Sources */,
 				226E4A752FC24F9B005F76BD /* bitrufus_core.swift in Sources */,
 				AA1B00032FC24F99005F76AA /* AppStore.swift in Sources */,
 				AA1B00052FC24F99005F76AA /* TorrentListView.swift in Sources */,
