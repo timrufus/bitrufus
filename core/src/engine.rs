@@ -108,6 +108,10 @@ impl Engine {
             persistence: Some(SessionPersistenceConfig::Json {
                 folder: Some(persistence_folder),
             }),
+            // Persist the have-pieces bitfield alongside the JSON session so restarts
+            // spot-check a few pieces per torrent instead of re-hashing every file.
+            // librqbit falls back to a full check if the stored bitfield is stale/corrupt.
+            fastresume: true,
             // Open a TCP listener for inbound peer connections. Without listen_port_range
             // librqbit never binds a socket, announces port=0 to trackers/DHT, and can only
             // connect outbound — which yields few or zero peers on many swarms (peers behind
