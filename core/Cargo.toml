@@ -2,7 +2,7 @@
 name = "bitrufus_core"
 # Kept in sync with MARKETING_VERSION in BitRufus.xcodeproj — this version is what
 # announce.rs sends as the User-Agent ("BitRufus/<version>") to HTTP trackers.
-version = "1.4.0"
+version = "1.5.0"
 edition = "2021"
 
 [lib]
