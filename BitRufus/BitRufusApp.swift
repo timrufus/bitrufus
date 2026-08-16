@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 @main
 struct BitRufusApp: App {
@@ -26,9 +27,26 @@ struct BitRufusApp: App {
                     store.updateScenePhase(active: phase == .active)
                 }
         }
+        .commands {
+            CommandGroup(after: .help) {
+                Button("Show Logs in Finder") { revealLogFile() }
+            }
+        }
         Settings {
             SettingsView()
                 .environmentObject(store)
+        }
+    }
+
+    // The log lives inside the sandbox container, which a user cannot reach by hand.
+    private func revealLogFile() {
+        guard let path = logFilePath() else { return }
+        let url = URL(fileURLWithPath: path)
+        if FileManager.default.fileExists(atPath: path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            // Engine not started yet, so the file does not exist — open its folder instead.
+            NSWorkspace.shared.open(url.deletingLastPathComponent())
         }
     }
 }

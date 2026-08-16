@@ -74,7 +74,7 @@ impl Engine {
     /// immediately with no risk of racing against an in-progress restore.
     #[uniffi::constructor]
     pub async fn new(download_dir: String) -> Result<Arc<Self>, EngineError> {
-        init_logging();
+        crate::logging::init();
 
         let persistence_folder = ProjectDirs::from("com", "BitRufus", "BitRufus")
             .ok_or_else(|| EngineError::Io {
@@ -509,24 +509,6 @@ impl Engine {
         }
         result
     }
-}
-
-// Installs a tracing subscriber once so librqbit's diagnostics (tracker announces, peer
-// connections, disk-write errors, etc.) surface on stderr — visible in Console.app and the
-// Xcode console. Default verbosity keeps librqbit at info; override with RUST_LOG, e.g.
-// `RUST_LOG=librqbit=debug`. Safe to call repeatedly: try_init is a no-op after the first.
-fn init_logging() {
-    use std::sync::Once;
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        use tracing_subscriber::EnvFilter;
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("librqbit=info,bitrufus_core=debug"));
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_writer(std::io::stderr)
-            .try_init();
-    });
 }
 
 // Given (info_hash, has_file_selection, session_id) for every restored torrent, returns
