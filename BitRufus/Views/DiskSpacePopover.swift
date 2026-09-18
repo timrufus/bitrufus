@@ -53,12 +53,6 @@ private func loadVolumes() -> [VolumeInfo] {
 struct DiskSpacePopover: View {
     @State private var volumes: [VolumeInfo] = []
 
-    private static let fmt: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.countStyle = .file
-        return f
-    }()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Disk Space")
@@ -70,7 +64,7 @@ struct DiskSpacePopover: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(volumes) { vol in
-                    VolumeRow(vol: vol, fmt: Self.fmt)
+                    VolumeRow(vol: vol)
                 }
             }
         }
@@ -82,7 +76,6 @@ struct DiskSpacePopover: View {
 
 private struct VolumeRow: View {
     let vol: VolumeInfo
-    let fmt: ByteCountFormatter
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -92,13 +85,13 @@ private struct VolumeRow: View {
                 Text(vol.name)
                     .fontWeight(.medium)
                 Spacer()
-                Text("\(fmt.string(fromByteCount: vol.free)) free")
+                Text("\(Formatters.bytes.string(fromByteCount: vol.free)) free")
                     .foregroundStyle(.secondary)
                     .font(.caption)
             }
             ProgressView(value: vol.usedFraction)
                 .tint(vol.usedFraction > 0.9 ? .red : vol.usedFraction > 0.75 ? .orange : .blue)
-            Text("\(fmt.string(fromByteCount: vol.total - vol.free)) used of \(fmt.string(fromByteCount: vol.total))")
+            Text("\(Formatters.bytes.string(fromByteCount: vol.total - vol.free)) used of \(Formatters.bytes.string(fromByteCount: vol.total))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

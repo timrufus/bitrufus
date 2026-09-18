@@ -397,12 +397,6 @@ struct TorrentRow: View {
     @State private var showRemoveDialog = false
     @State private var rowError: String?
 
-    private static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.countStyle = .file
-        return f
-    }()
-
     private var canResume: Bool {
         let state = vm.stats?.state
         return state == .paused || state == .error
@@ -554,13 +548,13 @@ struct TorrentRow: View {
             case .paused:
                 let finished = stats.totalBytes > 0 && stats.downloadedBytes >= stats.totalBytes
                 Text(finished
-                    ? "\(Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.totalBytes))) · Finished"
+                    ? "\(Formatters.bytes.string(fromByteCount: Int64(clamping: stats.totalBytes))) · Finished"
                     : "\(progressText(stats)) · Paused")
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundStyle(finished ? .green : .orange)
             case .seeding:
-                Text("\(Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.totalBytes))) · Seeding")
+                Text("\(Formatters.bytes.string(fromByteCount: Int64(clamping: stats.totalBytes))) · Seeding")
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundStyle(.green)
@@ -582,20 +576,20 @@ struct TorrentRow: View {
 
     private var sizeText: some View {
         Text(vm.info.totalBytes > 0
-            ? Self.byteFormatter.string(fromByteCount: Int64(clamping: vm.info.totalBytes))
+            ? Formatters.bytes.string(fromByteCount: Int64(clamping: vm.info.totalBytes))
             : "Fetching…")
             .foregroundStyle(.secondary)
             .font(.caption)
     }
 
     private func progressText(_ stats: TorrentStats) -> String {
-        let down = Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.downloadedBytes))
-        let total = Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.totalBytes))
+        let down = Formatters.bytes.string(fromByteCount: Int64(clamping: stats.downloadedBytes))
+        let total = Formatters.bytes.string(fromByteCount: Int64(clamping: stats.totalBytes))
         return "\(down) / \(total)"
     }
 
     private func downloadingText(_ stats: TorrentStats) -> String {
-        let speed = Self.byteFormatter.string(fromByteCount: Int64(clamping: stats.downloadSpeedBps))
+        let speed = Formatters.bytes.string(fromByteCount: Int64(clamping: stats.downloadSpeedBps))
         var parts = [progressText(stats), "\(speed)/s"]
         if let eta = etaText(stats) { parts.append(eta) }
         if stats.peerCount > 0 { parts.append("\(stats.peerCount) peers") }

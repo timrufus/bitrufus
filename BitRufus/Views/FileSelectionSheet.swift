@@ -8,12 +8,6 @@ struct FileSelectionSheet: View {
 
     @State private var selectedIndexes: Set<UInt32>
 
-    private static let byteFormatter: ByteCountFormatter = {
-        let f = ByteCountFormatter()
-        f.countStyle = .file
-        return f
-    }()
-
     init(vm: TorrentVM, files: [FileInfo], onConfirm: @escaping ([UInt32]) -> Void, onCancel: @escaping () -> Void) {
         self.vm = vm
         self.files = files
@@ -58,7 +52,7 @@ struct FileSelectionSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(file.path)
                             .lineLimit(2)
-                        Text(Self.byteFormatter.string(fromByteCount: Int64(clamping: file.sizeBytes)))
+                        Text(Formatters.bytes.string(fromByteCount: Int64(clamping: file.sizeBytes)))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
