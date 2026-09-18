@@ -104,7 +104,7 @@ After a successful build and launch:
    - Drag a `.torrent` file (or paste magnet text) onto the torrent list.
 3. A file-selection sheet appears (immediately for `.torrent` files; after a few seconds for magnet links while metadata resolves). Select the files you want and click **Download**.
 4. A row with the torrent name, size, and a live progress bar appears in the list.
-5. Right-click any row to **Pause**, **Resume**, or **Remove** a torrent. "Remove and Delete Files" also erases downloaded data.
+5. Right-click any row to **Pause**, **Resume**, or **Delete…** a torrent. The delete dialog offers "Delete Task" (keeps downloaded data) and "Delete with Files" (also erases it).
 
 ## Download Location
 
@@ -116,7 +116,7 @@ Torrent session state (survives restarts) is stored separately in `~/Library/App
 
 - No bandwidth throttling (upload or download limits).
 - No sequential download mode.
-- No system notifications or dock badge.
+- No dock badge.
 - No code signing or notarization — the binary runs only on the machine that built it.
 - Pure BitTorrent v2-only `.torrent` files are not pre-validated and may fail with a backend error; hybrid v1+v2 torrents work via their v1 infohash.
 
@@ -126,7 +126,6 @@ Features intentionally out of scope for the current version:
 
 - Bandwidth limits (upload and download throttling)
 - Sequential download mode
-- System notifications on completion
 - Dock badge showing active download count
 - Code signing and notarization
 - RSS feed support and auto-download rules
