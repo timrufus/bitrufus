@@ -76,6 +76,9 @@ final class AppStore: ObservableObject {
     // (a cold launch from a browser link); startEngine adds them once it is ready.
     private var queuedMagnets: [String] = []
     private var statsPollingTask: Task<Void, Never>?
+    // Live pollMetadata tasks by torrent id. Tracked so restartEngine and remove can cancel
+    // them: an orphaned task would keep the old Engine (and its librqbit session) alive.
+    private var metadataPollTasks: [UInt64: Task<Void, Never>] = [:]
     private let torrentStore = TorrentStore()
     private var isSceneActive: Bool = true
     var downloadDirectory: URL { AppSettings.shared.downloadDirectory }
@@ -132,7 +135,7 @@ final class AppStore: ObservableObject {
             // Restored torrents whose metadata hasn't resolved yet (no size) need the same
             // background polling that addMagnet kicks off for freshly-added magnets.
             for vm in torrents where vm.info.totalBytes == 0 {
-                Task { await self.pollMetadata(for: vm.id, engine: e) }
+                startMetadataPoll(for: vm.id, engine: e)
             }
             isEngineReady = true
             setPolling(active: isSceneActive)
@@ -275,6 +278,19 @@ final class AppStore: ObservableObject {
         return []
     }
 
+    private func startMetadataPoll(for id: UInt64, engine: Engine) {
+        metadataPollTasks[id]?.cancel()
+        metadataPollTasks[id] = Task {
+            await pollMetadata(for: id, engine: engine)
+            // A cancelled task has already been replaced or cleared; don't evict its successor.
+            if !Task.isCancelled { metadataPollTasks[id] = nil }
+        }
+    }
+
+    private func cancelMetadataPoll(for id: UInt64) {
+        metadataPollTasks.removeValue(forKey: id)?.cancel()
+    }
+
     // Polls until total_bytes > 0 (metadata resolved) or the window expires.
     // Phase 1: 0.5 s × 60 = 30 s (typical case). Phase 2: 5 s × 60 = 5 min (slow DHT).
     private func pollMetadata(for id: UInt64, engine: Engine) async {
@@ -334,6 +350,7 @@ final class AppStore: ObservableObject {
     func remove(id: UInt64, deleteFiles: Bool) async throws {
         guard let engine else { throw EngineError.Backend(reason: "engine not initialized") }
         try await engine.remove(id: id, deleteFiles: deleteFiles)
+        cancelMetadataPoll(for: id)
         torrents.removeAll { $0.id == id }
         torrentStore.remove(id: id)
     }
@@ -344,6 +361,8 @@ final class AppStore: ObservableObject {
 
     func restartEngine() {
         setPolling(active: false)
+        metadataPollTasks.values.forEach { $0.cancel() }
+        metadataPollTasks.removeAll()
         engine = nil
         torrents = []
         isEngineReady = false
