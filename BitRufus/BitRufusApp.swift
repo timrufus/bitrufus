@@ -26,6 +26,9 @@ struct BitRufusApp: App {
                 .onChange(of: scenePhase) { phase in
                     store.updateScenePhase(active: phase == .active)
                 }
+                .onOpenURL { url in store.openMagnetURL(url) }
+                // Route opened URLs to the existing window instead of spawning a new one each time.
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
         .commands {
             CommandGroup(after: .help) {

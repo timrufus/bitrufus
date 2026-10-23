@@ -72,6 +72,9 @@ final class AppStore: ObservableObject {
     @Published var autoPresentSelectionFor: UInt64?
 
     private var engine: Engine?
+    // Magnets opened via the magnet: URL scheme before the engine finished starting
+    // (a cold launch from a browser link); startEngine adds them once it is ready.
+    private var queuedMagnets: [String] = []
     private var statsPollingTask: Task<Void, Never>?
     private let torrentStore = TorrentStore()
     private var isSceneActive: Bool = true
@@ -133,6 +136,8 @@ final class AppStore: ObservableObject {
             }
             isEngineReady = true
             setPolling(active: isSceneActive)
+            queuedMagnets.forEach(beginAddMagnet)
+            queuedMagnets.removeAll()
         } catch {
             engineStartError = engineErrorMessage(error)
         }
@@ -147,6 +152,16 @@ final class AppStore: ObservableObject {
         let pending = PendingMagnet(uri: uri, name: Self.magnetDisplayName(uri) ?? "Magnet link")
         pendingMagnets.append(pending)
         Task { await resolvePending(pending) }
+    }
+
+    // Entry point for magnet: links opened from other apps (browser, Terminal `open`).
+    func openMagnetURL(_ url: URL) {
+        guard url.scheme?.lowercased() == "magnet" else { return }
+        if isEngineReady {
+            beginAddMagnet(url.absoluteString)
+        } else {
+            queuedMagnets.append(url.absoluteString)
+        }
     }
 
     // Number of automatic resolve attempts before giving up and offering a manual Retry.

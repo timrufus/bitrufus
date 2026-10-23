@@ -102,6 +102,7 @@ After a successful build and launch:
    - Click **+** in the toolbar and paste a magnet link, then click **Add**.
    - Click **Open Torrent File…** in the toolbar and pick a `.torrent` file.
    - Drag a `.torrent` file (or paste magnet text) onto the torrent list.
+   - Click a `magnet:` link in the browser (BitRufus registers the `magnet` URL scheme; pick it as the handler if another torrent client already claims it).
 3. A file-selection sheet appears (immediately for `.torrent` files; after a few seconds for magnet links while metadata resolves). Select the files you want and click **Download**.
 4. A row with the torrent name, size, and a live progress bar appears in the list.
 5. Right-click any row to **Pause**, **Resume**, or **Delete…** a torrent. The delete dialog offers "Delete Task" (keeps downloaded data) and "Delete with Files" (also erases it).
